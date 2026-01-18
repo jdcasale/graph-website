@@ -1,0 +1,200 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #ffffff;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #222222;
+    cursor: grab;
+}
+
+body:active {
+    cursor: grabbing;
+}
+
+#canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+#content {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.node-content {
+    position: absolute;
+    max-width: 280px;
+    pointer-events: auto;
+    white-space: pre-line;
+}
+
+.node-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: #333333;
+}
+
+.anchor-title {
+    font-size: 16px;
+    color: #000000;
+}
+
+.node-body {
+    color: #444444;
+    font-size: 13px;
+}
+
+/* Subtle hover effect on node content */
+.node-content:hover {
+    background: rgba(0, 0, 0, 0.02);
+    border-radius: 2px;
+    margin: -4px;
+    padding: 4px;
+}
+
+/* Current node highlight in rail mode */
+.node-content.node-current {
+    background: rgba(0, 0, 0, 0.04);
+    border-radius: 3px;
+    margin: -6px;
+    padding: 6px;
+}
+
+.node-content.node-current .node-title {
+    color: #000000;
+    font-weight: 700;
+}
+
+/* Article display when zoomed in */
+.node-article {
+    color: #333333;
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 500px;
+    margin-top: 12px;
+}
+
+.node-content.node-zoomed {
+    max-width: 600px;
+}
+
+.node-content.node-zoomed .node-title {
+    font-size: 20px;
+    margin-bottom: 8px;
+}
+
+/* Reading mode - full article view */
+.node-content.node-reading {
+    max-width: 650px;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 40px;
+    background: #ffffff;
+}
+
+.reading-article {
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    font-size: 15px;
+    line-height: 1.7;
+    color: #222222;
+}
+
+.reading-article h1 {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 24px;
+    color: #000000;
+}
+
+.reading-article h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-top: 32px;
+    margin-bottom: 16px;
+    color: #111111;
+}
+
+.reading-article h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 24px;
+    margin-bottom: 12px;
+    color: #222222;
+}
+
+.reading-article p {
+    margin-bottom: 16px;
+}
+
+.reading-article ul, .reading-article ol {
+    margin-bottom: 16px;
+    padding-left: 24px;
+}
+
+.reading-article li {
+    margin-bottom: 8px;
+}
+
+.reading-article code {
+    background: #f5f5f5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 14px;
+}
+
+.reading-article pre {
+    background: #f5f5f5;
+    padding: 16px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin-bottom: 16px;
+}
+
+.reading-article pre code {
+    background: none;
+    padding: 0;
+}
+
+.reading-article blockquote {
+    border-left: 3px solid #cccccc;
+    padding-left: 16px;
+    margin-left: 0;
+    margin-bottom: 16px;
+    color: #555555;
+    font-style: italic;
+}
+
+.reading-article strong {
+    font-weight: 600;
+}
+
+.reading-article em {
+    font-style: italic;
+}
+
+.reading-article a {
+    color: #000000;
+    text-decoration: underline;
+}
+
+.reading-article a:hover {
+    text-decoration: none;
+}
