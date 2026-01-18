@@ -610,6 +610,16 @@ pub fn set_camera_zoom(zoom: f64) {
     });
 }
 
+// Apply velocity to camera (for touch momentum)
+pub fn apply_camera_velocity(vx: f64, vy: f64) {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            app.camera.velocity = graph::Vec2::new(vx, vy);
+            app.camera.target = None; // Cancel any glide target
+        }
+    });
+}
+
 // Check if we're inside a subgraph (not at root level)
 pub fn is_in_subgraph() -> bool {
     APP.with(|cell| {

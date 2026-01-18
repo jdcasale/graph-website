@@ -1,5 +1,5 @@
 use crate::graph::Vec2;
-use crate::{end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, navigate_rail, set_camera_zoom, toggle_dark_mode, toggle_rail_mode, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
+use crate::{apply_camera_velocity, end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, navigate_rail, set_camera_zoom, toggle_dark_mode, toggle_rail_mode, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -28,6 +28,7 @@ pub struct InputState {
     pub pinch_center: Vec2,
     last_tap_time: f64,
     last_tap_pos: Vec2,
+    touch_start_pos: Vec2,  // Where the current touch started (for tap detection)
 }
 
 impl InputState {
@@ -56,6 +57,7 @@ impl InputState {
             pinch_center: Vec2::zero(),
             last_tap_time: 0.0,
             last_tap_pos: Vec2::zero(),
+            touch_start_pos: Vec2::zero(),
         }
     }
 
@@ -333,6 +335,7 @@ pub fn setup_listeners() -> Result<(), JsValue> {
             if let Some(touch) = touches.get(0) {
                 let x = touch.client_x() as f64;
                 let y = touch.client_y() as f64;
+                let pos = Vec2::new(x, y);
 
                 // Try to grab a node first
                 let grabbed_node = try_start_node_drag(x, y);
@@ -341,7 +344,8 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                     input.touch_count = 1;
                     input.is_dragging = true;
                     input.is_dragging_node = grabbed_node;
-                    input.last_mouse = Vec2::new(x, y);
+                    input.last_mouse = pos;
+                    input.touch_start_pos = pos;  // Remember where touch started
                     input.drag_velocity = Vec2::zero();
                     input.pinch_distance = None;
                 });
@@ -415,22 +419,28 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                     update_node_drag(x, y);
                 }
             }
-        } else if touch_count == 2 {
-            // Two fingers - pinch zoom
+        } else if touch_count >= 2 {
+            // Two or more fingers - pinch zoom
             if let (Some(t1), Some(t2)) = (touches.get(0), touches.get(1)) {
                 let p1 = Vec2::new(t1.client_x() as f64, t1.client_y() as f64);
                 let p2 = Vec2::new(t2.client_x() as f64, t2.client_y() as f64);
                 let new_dist = (p2 - p1).length();
 
                 with_input(|input| {
+                    // Update touch state in case we transitioned from 1 finger
+                    input.touch_count = 2;
+                    input.is_dragging = false;
+                    input.is_dragging_node = false;
+
                     if let Some(old_dist) = input.pinch_distance {
-                        if old_dist > 0.0 {
+                        if old_dist > 0.0 && new_dist > 0.0 {
                             let scale_factor = new_dist / old_dist;
                             let current_zoom = get_camera_zoom();
                             let new_zoom = current_zoom * scale_factor;
                             set_camera_zoom(new_zoom);
                         }
                     }
+                    // Always update pinch_distance (initializes on first 2-finger move)
                     input.pinch_distance = Some(new_dist);
                 });
             }
@@ -459,23 +469,26 @@ pub fn setup_listeners() -> Result<(), JsValue> {
             if let Some(touch) = changed_touches.get(0) {
                 let x = touch.client_x() as f64;
                 let y = touch.client_y() as f64;
+                let pos = Vec2::new(x, y);
                 let now = js_sys::Date::now();
 
                 let (was_dragging_node, drag_velocity, total_drag, was_single_touch) = with_input_result(|input| {
                     let was_single = input.touch_count == 1;
+                    // Calculate total distance from where touch started (not just last delta)
+                    let total_distance = (pos - input.touch_start_pos).length();
                     let result = (
                         input.is_dragging_node,
                         input.drag_velocity,
-                        input.drag_delta.length(),
+                        total_distance,
                         was_single,
                     );
 
                     input.is_dragging = false;
                     input.is_dragging_node = false;
                     input.drag_delta = Vec2::zero();
-                    input.drag_velocity = Vec2::zero();
                     input.touch_count = 0;
                     input.pinch_distance = None;
+                    // Don't clear drag_velocity yet - we need it for momentum
 
                     result
                 });
@@ -486,7 +499,6 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                 } else if was_single_touch && total_drag < 15.0 {
                     // This was a tap (not a drag)
                     let is_double_tap = with_input_result(|input| {
-                        let pos = Vec2::new(x, y);
                         let time_diff = now - input.last_tap_time;
                         let pos_diff = (pos - input.last_tap_pos).length();
 
@@ -506,7 +518,16 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                         // Single tap - select node
                         handle_node_click(x, y);
                     }
+                } else if was_single_touch {
+                    // Was a drag (not a tap) - apply momentum to camera
+                    // Velocity is in pixels per frame, scale up for smooth momentum
+                    apply_camera_velocity(-drag_velocity.x * 60.0, -drag_velocity.y * 60.0);
                 }
+
+                // Now clear the velocity
+                with_input(|input| {
+                    input.drag_velocity = Vec2::zero();
+                });
             }
         } else if remaining_touches == 1 {
             // Went from 2 fingers to 1 - transition back to single-touch drag
