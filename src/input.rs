@@ -1,5 +1,5 @@
 use crate::graph::Vec2;
-use crate::{end_node_drag, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, navigate_rail, toggle_dark_mode, toggle_rail_mode, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
+use crate::{end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, navigate_rail, set_camera_zoom, toggle_dark_mode, toggle_rail_mode, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -22,6 +22,12 @@ pub struct InputState {
     last_g_time: f64,
     last_click_time: f64,
     last_click_pos: Vec2,
+    // Touch state
+    pub touch_count: u32,
+    pub pinch_distance: Option<f64>,
+    pub pinch_center: Vec2,
+    last_tap_time: f64,
+    last_tap_pos: Vec2,
 }
 
 impl InputState {
@@ -44,6 +50,12 @@ impl InputState {
             last_g_time: 0.0,
             last_click_time: 0.0,
             last_click_pos: Vec2::zero(),
+            // Touch state
+            touch_count: 0,
+            pinch_distance: None,
+            pinch_center: Vec2::zero(),
+            last_tap_time: 0.0,
+            last_tap_pos: Vec2::zero(),
         }
     }
 
@@ -302,6 +314,236 @@ pub fn setup_listeners() -> Result<(), JsValue> {
         &options,
     )?;
     wheel_closure.forget();
+
+    // ═══════════════════════════════════════════════════════════════
+    // TOUCH HANDLERS
+    // ═══════════════════════════════════════════════════════════════
+
+    // Touch start - begin drag or pinch
+    let touchstart_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+        let touches = event.touches();
+        let touch_count = touches.length();
+
+        if touch_count == 1 {
+            // Single touch - start drag
+            if let Some(touch) = touches.get(0) {
+                let x = touch.client_x() as f64;
+                let y = touch.client_y() as f64;
+
+                // Try to grab a node first
+                let grabbed_node = try_start_node_drag(x, y);
+
+                with_input(|input| {
+                    input.touch_count = 1;
+                    input.is_dragging = true;
+                    input.is_dragging_node = grabbed_node;
+                    input.last_mouse = Vec2::new(x, y);
+                    input.drag_velocity = Vec2::zero();
+                    input.pinch_distance = None;
+                });
+            }
+        } else if touch_count == 2 {
+            // Two fingers - start pinch
+            if let (Some(t1), Some(t2)) = (touches.get(0), touches.get(1)) {
+                let p1 = Vec2::new(t1.client_x() as f64, t1.client_y() as f64);
+                let p2 = Vec2::new(t2.client_x() as f64, t2.client_y() as f64);
+                let dist = (p2 - p1).length();
+                let center = Vec2::new((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0);
+
+                with_input(|input| {
+                    input.touch_count = 2;
+                    input.is_dragging = false;
+                    input.is_dragging_node = false;
+                    input.pinch_distance = Some(dist);
+                    input.pinch_center = center;
+                });
+
+                // End any node drag
+                end_node_drag(0.0, 0.0);
+            }
+        }
+
+        // Prevent default to avoid scrolling
+        if !is_zoomed_in() {
+            event.prevent_default();
+        }
+    });
+
+    let touch_options = web_sys::AddEventListenerOptions::new();
+    touch_options.set_passive(false);
+    document.add_event_listener_with_callback_and_add_event_listener_options(
+        "touchstart",
+        touchstart_closure.as_ref().unchecked_ref(),
+        &touch_options,
+    )?;
+    touchstart_closure.forget();
+
+    // Touch move - drag or pinch
+    let touchmove_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+        let touches = event.touches();
+        let touch_count = touches.length();
+
+        if touch_count == 1 {
+            // Single touch - drag
+            if let Some(touch) = touches.get(0) {
+                let x = touch.client_x() as f64;
+                let y = touch.client_y() as f64;
+
+                let (is_dragging, is_dragging_node) = with_input_result(|input| {
+                    if input.touch_count != 1 {
+                        return (false, false);
+                    }
+
+                    let current = Vec2::new(x, y);
+                    input.mouse_position = current;
+
+                    if input.is_dragging {
+                        let delta = current - input.last_mouse;
+                        input.drag_delta = delta;
+                        input.drag_velocity = delta;
+                        input.last_mouse = current;
+                    }
+
+                    (input.is_dragging, input.is_dragging_node)
+                });
+
+                // If dragging a node, update its position
+                if is_dragging && is_dragging_node {
+                    update_node_drag(x, y);
+                }
+            }
+        } else if touch_count == 2 {
+            // Two fingers - pinch zoom
+            if let (Some(t1), Some(t2)) = (touches.get(0), touches.get(1)) {
+                let p1 = Vec2::new(t1.client_x() as f64, t1.client_y() as f64);
+                let p2 = Vec2::new(t2.client_x() as f64, t2.client_y() as f64);
+                let new_dist = (p2 - p1).length();
+
+                with_input(|input| {
+                    if let Some(old_dist) = input.pinch_distance {
+                        if old_dist > 0.0 {
+                            let scale_factor = new_dist / old_dist;
+                            let current_zoom = get_camera_zoom();
+                            let new_zoom = current_zoom * scale_factor;
+                            set_camera_zoom(new_zoom);
+                        }
+                    }
+                    input.pinch_distance = Some(new_dist);
+                });
+            }
+        }
+
+        // Prevent default to avoid scrolling
+        if !is_zoomed_in() {
+            event.prevent_default();
+        }
+    });
+
+    let touchmove_options = web_sys::AddEventListenerOptions::new();
+    touchmove_options.set_passive(false);
+    document.add_event_listener_with_callback_and_add_event_listener_options(
+        "touchmove",
+        touchmove_closure.as_ref().unchecked_ref(),
+        &touchmove_options,
+    )?;
+    touchmove_closure.forget();
+
+    // Touch end - handle tap/double-tap or release drag
+    let touchend_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+        let changed_touches = event.changed_touches();
+        let remaining_touches = event.touches().length();
+
+        if remaining_touches == 0 {
+            // All fingers lifted
+            if let Some(touch) = changed_touches.get(0) {
+                let x = touch.client_x() as f64;
+                let y = touch.client_y() as f64;
+                let now = js_sys::Date::now();
+
+                let (was_dragging_node, drag_velocity, total_drag, was_single_touch) = with_input_result(|input| {
+                    let was_single = input.touch_count == 1;
+                    let result = (
+                        input.is_dragging_node,
+                        input.drag_velocity,
+                        input.drag_delta.length(),
+                        was_single,
+                    );
+
+                    input.is_dragging = false;
+                    input.is_dragging_node = false;
+                    input.drag_delta = Vec2::zero();
+                    input.drag_velocity = Vec2::zero();
+                    input.touch_count = 0;
+                    input.pinch_distance = None;
+
+                    result
+                });
+
+                if was_dragging_node {
+                    // Release the node with velocity
+                    end_node_drag(drag_velocity.x * 60.0, drag_velocity.y * 60.0);
+                } else if was_single_touch && total_drag < 15.0 {
+                    // This was a tap (not a drag)
+                    let is_double_tap = with_input_result(|input| {
+                        let pos = Vec2::new(x, y);
+                        let time_diff = now - input.last_tap_time;
+                        let pos_diff = (pos - input.last_tap_pos).length();
+
+                        // Double-tap if within 400ms and 30px of last tap
+                        let is_dbl = time_diff < 400.0 && pos_diff < 30.0;
+
+                        input.last_tap_time = now;
+                        input.last_tap_pos = pos;
+
+                        is_dbl
+                    });
+
+                    if is_double_tap && !is_zoomed_in() {
+                        // Double-tap - navigate into node
+                        handle_node_double_click(x, y);
+                    } else if !is_double_tap {
+                        // Single tap - select node
+                        handle_node_click(x, y);
+                    }
+                }
+            }
+        } else if remaining_touches == 1 {
+            // Went from 2 fingers to 1 - transition back to single-touch drag
+            if let Some(touch) = event.touches().get(0) {
+                let x = touch.client_x() as f64;
+                let y = touch.client_y() as f64;
+
+                with_input(|input| {
+                    input.touch_count = 1;
+                    input.is_dragging = true;
+                    input.is_dragging_node = false;
+                    input.last_mouse = Vec2::new(x, y);
+                    input.pinch_distance = None;
+                });
+            }
+        }
+    });
+
+    document.add_event_listener_with_callback("touchend", touchend_closure.as_ref().unchecked_ref())?;
+    touchend_closure.forget();
+
+    // Touch cancel - same as touch end
+    let touchcancel_closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::TouchEvent| {
+        with_input(|input| {
+            if input.is_dragging_node {
+                end_node_drag(0.0, 0.0);
+            }
+            input.is_dragging = false;
+            input.is_dragging_node = false;
+            input.drag_delta = Vec2::zero();
+            input.drag_velocity = Vec2::zero();
+            input.touch_count = 0;
+            input.pinch_distance = None;
+        });
+    });
+
+    document.add_event_listener_with_callback("touchcancel", touchcancel_closure.as_ref().unchecked_ref())?;
+    touchcancel_closure.forget();
 
     Ok(())
 }

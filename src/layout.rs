@@ -10,6 +10,8 @@ const MIN_DISTANCE: f64 = 60.0;             // Minimum distance for repulsion ca
 const MAX_FORCE: f64 = 1000.0;              // Cap force magnitude
 const VELOCITY_THRESHOLD: f64 = 0.05;       // Stop when velocity below this
 const MIN_REPULSION_FORCE: f64 = 0.5;       // Clip repulsion forces below this threshold to zero
+const GRAVITY_STRENGTH: f64 = 0.002;        // Pairwise gravity between nodes (scales with distance squared)
+const GRAVITY_EQUILIBRIUM: f64 = 280.0;     // Distance at which gravity kicks in
 
 /// Run one step of the physics simulation.
 /// Call this every frame for continuous movement.
@@ -34,7 +36,7 @@ pub fn step(graph: &mut Graph, dt: f64, visible_node_ids: &[String]) {
 
         let mut force = Vec2::zero();
 
-        // Repulsion from all other nodes (based on bounding box distance)
+        // Repulsion AND gravity from all other nodes
         for other_id in &node_ids {
             if other_id == id {
                 continue;
@@ -93,7 +95,8 @@ pub fn step(graph: &mut Graph, dt: f64, visible_node_ids: &[String]) {
 
             // Direction from other to this node (center to center)
             let diff = node.position - other.position;
-            let direction = if diff.length() > 0.1 {
+            let center_dist = diff.length();
+            let direction = if center_dist > 0.1 {
                 diff.normalized()
             } else {
                 // If centers are nearly identical, push in a random-ish direction
@@ -103,15 +106,23 @@ pub fn step(graph: &mut Graph, dt: f64, visible_node_ids: &[String]) {
             // Inverse square repulsion based on box distance
             // Add MIN_DISTANCE to prevent division issues and ensure smooth falloff
             let effective_dist = (box_dist + MIN_DISTANCE).max(MIN_DISTANCE);
-            let strength = REPULSION_STRENGTH / (effective_dist * effective_dist);
+            let repulsion_strength = REPULSION_STRENGTH / (effective_dist * effective_dist);
 
-            // Clip small repulsion forces to zero to prevent infinite expansion
-            if strength < MIN_REPULSION_FORCE {
-                continue;
+            // Apply repulsion if strong enough
+            if repulsion_strength >= MIN_REPULSION_FORCE {
+                let repulsion = direction * repulsion_strength;
+                force = force + repulsion;
             }
 
-            let repulsion = direction * strength;
-            force = force + repulsion;
+            // Pairwise gravity - attraction that scales quadratically with distance beyond equilibrium
+            // This creates a soft boundary that pulls nodes back together
+            if center_dist > GRAVITY_EQUILIBRIUM {
+                let excess_dist = center_dist - GRAVITY_EQUILIBRIUM;
+                // Gravity scales quadratically - much stronger pull when far apart
+                let gravity_strength = excess_dist * excess_dist * GRAVITY_STRENGTH;
+                let gravity = direction * (-gravity_strength); // Negative = toward other node
+                force = force + gravity;
+            }
         }
 
         // Attraction along edges (to connected nodes)

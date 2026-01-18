@@ -587,6 +587,29 @@ pub fn zoom_out() {
     });
 }
 
+// Get current camera zoom level
+pub fn get_camera_zoom() -> f64 {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow().as_ref() {
+            app.camera.zoom
+        } else {
+            1.0
+        }
+    })
+}
+
+// Set camera zoom level directly (for pinch-to-zoom)
+pub fn set_camera_zoom(zoom: f64) {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            // Clamp zoom between 0.5 and 3.0 for touch (don't allow reading mode via pinch)
+            let clamped = zoom.clamp(0.5, 3.0);
+            app.camera.zoom = clamped;
+            app.camera.target_zoom = None; // Cancel any animated zoom
+        }
+    });
+}
+
 // Check if we're inside a subgraph (not at root level)
 pub fn is_in_subgraph() -> bool {
     APP.with(|cell| {

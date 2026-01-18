@@ -14,6 +14,10 @@ html, body {
     line-height: 1.5;
     color: #222222;
     cursor: grab;
+    touch-action: none; /* Disable default touch behaviors */
+    -webkit-touch-callout: none; /* Disable iOS callout */
+    -webkit-user-select: none; /* Disable text selection on touch */
+    user-select: none;
 }
 
 body:active {
@@ -108,6 +112,8 @@ body:active {
     overflow-y: auto;
     padding: 40px;
     background: #ffffff;
+    touch-action: pan-y; /* Allow vertical scrolling in reading mode */
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
 }
 
 .reading-article {

@@ -26,6 +26,9 @@ features = [
     "KeyboardEvent",
     "MouseEvent",
     "WheelEvent",
+    "TouchEvent",
+    "Touch",
+    "TouchList",
     "EventTarget",
     "AddEventListenerOptions",
 ]
