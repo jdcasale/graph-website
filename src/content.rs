@@ -264,6 +264,19 @@ Rust didn't teach me how to write Rust. It taught me how to think about memory, 
     // project-gamma connects writing and projects
     graph.add_association("project-gamma", "essay-minimalism", Some("topic: simplicity"));
 
+    // About (author) is connected to all content
+    graph.add_association("about", "projects", Some("author"));
+    graph.add_association("about", "writing", Some("author"));
+    graph.add_association("about", "project-alpha", Some("author"));
+    graph.add_association("about", "project-beta", Some("author"));
+    graph.add_association("about", "project-gamma", Some("author"));
+    graph.add_association("about", "beta-search", Some("author"));
+    graph.add_association("about", "beta-graph", Some("author"));
+    graph.add_association("about", "beta-export", Some("author"));
+    graph.add_association("about", "essay-minimalism", Some("author"));
+    graph.add_association("about", "essay-tools", Some("author"));
+    graph.add_association("about", "note-rust", Some("author"));
+
     // ═══════════════════════════════════════════════════════════════
     // RUN INITIAL LAYOUT
     // ═══════════════════════════════════════════════════════════════
