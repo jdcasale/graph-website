@@ -316,13 +316,8 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     wheel_closure.forget();
 
     // ═══════════════════════════════════════════════════════════════
-    // TOUCH HANDLERS
+    // TOUCH HANDLERS (on document, like mouse handlers)
     // ═══════════════════════════════════════════════════════════════
-
-    // Get canvas element for touch events
-    let canvas = document
-        .get_element_by_id("canvas")
-        .ok_or("no canvas")?;
 
     // Touch start - begin drag or pinch
     let touchstart_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
@@ -375,7 +370,7 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     let touch_options = web_sys::AddEventListenerOptions::new();
     touch_options.set_passive(false);
-    canvas.add_event_listener_with_callback_and_add_event_listener_options(
+    document.add_event_listener_with_callback_and_add_event_listener_options(
         "touchstart",
         touchstart_closure.as_ref().unchecked_ref(),
         &touch_options,
@@ -383,9 +378,6 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     touchstart_closure.forget();
 
     // Touch move - drag or pinch
-    let canvas_move = document
-        .get_element_by_id("canvas")
-        .ok_or("no canvas")?;
     let touchmove_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
         // Prevent default early
         event.prevent_default();
@@ -447,7 +439,7 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     let touchmove_options = web_sys::AddEventListenerOptions::new();
     touchmove_options.set_passive(false);
-    canvas_move.add_event_listener_with_callback_and_add_event_listener_options(
+    document.add_event_listener_with_callback_and_add_event_listener_options(
         "touchmove",
         touchmove_closure.as_ref().unchecked_ref(),
         &touchmove_options,
@@ -455,9 +447,6 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     touchmove_closure.forget();
 
     // Touch end - handle tap/double-tap or release drag
-    let canvas_end = document
-        .get_element_by_id("canvas")
-        .ok_or("no canvas")?;
     let touchend_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
         event.prevent_default();
         event.stop_propagation();
@@ -538,7 +527,7 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     let touchend_options = web_sys::AddEventListenerOptions::new();
     touchend_options.set_passive(false);
-    canvas_end.add_event_listener_with_callback_and_add_event_listener_options(
+    document.add_event_listener_with_callback_and_add_event_listener_options(
         "touchend",
         touchend_closure.as_ref().unchecked_ref(),
         &touchend_options,
@@ -546,9 +535,6 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     touchend_closure.forget();
 
     // Touch cancel - same as touch end
-    let canvas_cancel = document
-        .get_element_by_id("canvas")
-        .ok_or("no canvas")?;
     let touchcancel_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
         event.prevent_default();
         with_input(|input| {
@@ -566,7 +552,7 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     let touchcancel_options = web_sys::AddEventListenerOptions::new();
     touchcancel_options.set_passive(false);
-    canvas_cancel.add_event_listener_with_callback_and_add_event_listener_options(
+    document.add_event_listener_with_callback_and_add_event_listener_options(
         "touchcancel",
         touchcancel_closure.as_ref().unchecked_ref(),
         &touchcancel_options,
