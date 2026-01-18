@@ -113,12 +113,24 @@ impl Renderer {
         depth_context: &Option<String>,
         visible_node_ids: &[String],
         transition_opacity: f64,
+        dark_mode: bool,
     ) -> Result<(), JsValue> {
         // Update canvas size if window resized
         self.update_size()?;
 
-        // Clear canvas
-        self.ctx.set_fill_style_str("#ffffff");
+        // Set dark mode class on body for CSS styling
+        let window = web_sys::window().ok_or("no window")?;
+        let document = window.document().ok_or("no document")?;
+        let body = document.body().ok_or("no body")?;
+        if dark_mode {
+            body.set_class_name("dark-mode");
+        } else {
+            body.set_class_name("");
+        }
+
+        // Clear canvas with appropriate background
+        let bg_color = if dark_mode { "#111111" } else { "#ffffff" };
+        self.ctx.set_fill_style_str(bg_color);
         self.ctx.fill_rect(0.0, 0.0, self.width, self.height);
 
         let zoom = camera.zoom;
@@ -167,7 +179,11 @@ impl Renderer {
                     match edge.edge_type {
                         EdgeType::Directed => {
                             // Solid line for hierarchy
-                            let edge_color = format!("rgba(102, 102, 102, {})", graph_opacity);
+                            let edge_color = if dark_mode {
+                                format!("rgba(180, 180, 180, {})", graph_opacity)
+                            } else {
+                                format!("rgba(102, 102, 102, {})", graph_opacity)
+                            };
                             self.ctx.set_stroke_style_str(&edge_color);
                             self.ctx.set_line_width(zoom.max(1.0) * 1.5);
                             self.ctx.set_line_dash(&js_sys::Array::new())?; // Solid line
@@ -178,11 +194,15 @@ impl Renderer {
                             self.ctx.stroke();
 
                             // Draw arrow at the end
-                            self.draw_arrow(from_screen, to_screen, zoom, graph_opacity)?;
+                            self.draw_arrow(from_screen, to_screen, zoom, graph_opacity, dark_mode)?;
                         }
                         EdgeType::Undirected => {
                             // Dashed line for associations
-                            let edge_color = format!("rgba(180, 180, 180, {})", graph_opacity);
+                            let edge_color = if dark_mode {
+                                format!("rgba(120, 120, 120, {})", graph_opacity)
+                            } else {
+                                format!("rgba(180, 180, 180, {})", graph_opacity)
+                            };
                             self.ctx.set_stroke_style_str(&edge_color);
                             self.ctx.set_line_width(zoom.max(1.0));
 
@@ -241,11 +261,19 @@ impl Renderer {
             if graph_opacity > 0.01 {
                 // Draw highlight ring if this is the current/closest node
                 if is_current {
-                    // Use different style for rail mode vs free mode
+                    // Use different style for rail mode vs free mode, inverted for dark mode
                     let highlight_color = if rail_mode {
-                        format!("rgba(0, 0, 0, {})", graph_opacity)
+                        if dark_mode {
+                            format!("rgba(255, 255, 255, {})", graph_opacity)
+                        } else {
+                            format!("rgba(0, 0, 0, {})", graph_opacity)
+                        }
                     } else {
-                        format!("rgba(153, 153, 153, {})", graph_opacity)
+                        if dark_mode {
+                            format!("rgba(180, 180, 180, {})", graph_opacity)
+                        } else {
+                            format!("rgba(153, 153, 153, {})", graph_opacity)
+                        }
                     };
                     self.ctx.set_stroke_style_str(&highlight_color);
                     self.ctx.set_line_width(if rail_mode { 2.0 * zoom } else { 1.5 * zoom });
@@ -263,10 +291,18 @@ impl Renderer {
                     NODE_RADIUS
                 };
 
-                // Draw node circle with opacity
+                // Draw node circle with opacity (inverted for dark mode)
                 let color = match node.node_type {
-                    NodeType::Anchor => format!("rgba(51, 51, 51, {})", graph_opacity),
-                    NodeType::Content => format!("rgba(102, 102, 102, {})", graph_opacity),
+                    NodeType::Anchor => if dark_mode {
+                        format!("rgba(220, 220, 220, {})", graph_opacity)
+                    } else {
+                        format!("rgba(51, 51, 51, {})", graph_opacity)
+                    },
+                    NodeType::Content => if dark_mode {
+                        format!("rgba(180, 180, 180, {})", graph_opacity)
+                    } else {
+                        format!("rgba(102, 102, 102, {})", graph_opacity)
+                    },
                 };
 
                 self.ctx.set_fill_style_str(&color);
@@ -277,7 +313,12 @@ impl Renderer {
 
                 // Draw small "+" indicator for nodes with children
                 if has_children {
-                    self.ctx.set_stroke_style_str(&format!("rgba(255, 255, 255, {})", graph_opacity));
+                    let plus_color = if dark_mode {
+                        format!("rgba(17, 17, 17, {})", graph_opacity)
+                    } else {
+                        format!("rgba(255, 255, 255, {})", graph_opacity)
+                    };
+                    self.ctx.set_stroke_style_str(&plus_color);
                     self.ctx.set_line_width(zoom.max(1.0));
 
                     // Horizontal line of +
@@ -312,7 +353,7 @@ impl Renderer {
     }
 
     /// Draw an arrow at the end of a directed edge
-    fn draw_arrow(&self, from: Vec2, to: Vec2, zoom: f64, opacity: f64) -> Result<(), JsValue> {
+    fn draw_arrow(&self, from: Vec2, to: Vec2, zoom: f64, opacity: f64, dark_mode: bool) -> Result<(), JsValue> {
         let arrow_size = 8.0 * zoom;
 
         // Calculate direction
@@ -345,8 +386,13 @@ impl Renderer {
         let right_x = base_x - perp_x * arrow_size * 0.5;
         let right_y = base_y - perp_y * arrow_size * 0.5;
 
-        // Draw filled arrow
-        self.ctx.set_fill_style_str(&format!("rgba(102, 102, 102, {})", opacity));
+        // Draw filled arrow (inverted for dark mode)
+        let arrow_color = if dark_mode {
+            format!("rgba(180, 180, 180, {})", opacity)
+        } else {
+            format!("rgba(102, 102, 102, {})", opacity)
+        };
+        self.ctx.set_fill_style_str(&arrow_color);
         self.ctx.begin_path();
         self.ctx.move_to(arrow_tip_x, arrow_tip_y);
         self.ctx.line_to(left_x, left_y);

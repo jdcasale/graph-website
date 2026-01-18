@@ -1,5 +1,5 @@
 use crate::graph::Vec2;
-use crate::{end_node_drag, go_home, handle_node_click, is_rail_mode, is_zoomed_in, navigate_rail, toggle_rail_mode, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
+use crate::{end_node_drag, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, navigate_rail, toggle_dark_mode, toggle_rail_mode, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -67,7 +67,7 @@ pub fn setup_listeners() -> Result<(), JsValue> {
         let shift = event.shift_key();
 
         // Prevent default for our navigation keys
-        if matches!(key.as_str(), "h" | "j" | "k" | "l" | "g" | "b" | "Enter" | "Escape" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown") {
+        if matches!(key.as_str(), "h" | "j" | "k" | "l" | "g" | "b" | "d" | "Enter" | "Escape" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown") {
             event.prevent_default();
         }
 
@@ -108,6 +108,12 @@ pub fn setup_listeners() -> Result<(), JsValue> {
         // Handle b (toggle rail mode)
         if key == "b" {
             toggle_rail_mode();
+            return;
+        }
+
+        // Handle d (toggle dark mode)
+        if key == "d" {
+            toggle_dark_mode();
             return;
         }
 
@@ -264,8 +270,8 @@ pub fn setup_listeners() -> Result<(), JsValue> {
             end_node_drag(drag_velocity.x * 60.0, drag_velocity.y * 60.0);
         } else if total_drag < 5.0 {
             if is_double_click && !is_zoomed_in() {
-                // Double-click - zoom in on highlighted node
-                zoom_in_current();
+                // Double-click - navigate into the clicked node
+                handle_node_double_click(x, y);
             } else if !is_double_click {
                 // Single click - jump to clicked node
                 handle_node_click(x, y);

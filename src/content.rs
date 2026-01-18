@@ -14,7 +14,7 @@ pub fn build_graph() -> Graph {
         "home",
         vec2(0.0, 0.0),
         "Welcome",
-        "Navigate with h/j/k/l or arrow keys.\nClick a node to jump to it.\nPress gg to return home.\nPress b for rail mode.\nPress Enter to drill into nodes.",
+        "Navigate with h/j/k/l or arrow keys.\nClick a node to jump to it.\nPress gg to return home.\nPress b for rail mode.\nPress d for dark mode.\nPress Enter to drill into nodes.",
         None,
     );
 

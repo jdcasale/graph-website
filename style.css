@@ -243,3 +243,95 @@ body:active {
     color: #aaaaaa;
     margin-left: 8px;
 }
+
+/* Dark mode styles */
+body.dark-mode {
+    background: #111111;
+    color: #dddddd;
+}
+
+body.dark-mode .node-title {
+    color: #eeeeee;
+}
+
+body.dark-mode .anchor-title {
+    color: #ffffff;
+}
+
+body.dark-mode .node-body {
+    color: #bbbbbb;
+}
+
+body.dark-mode .node-content:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+body.dark-mode .node-content.node-current {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+body.dark-mode .node-content.node-current .node-title {
+    color: #ffffff;
+}
+
+body.dark-mode .node-article {
+    color: #cccccc;
+}
+
+body.dark-mode .node-content.node-reading {
+    background: #111111;
+}
+
+body.dark-mode .reading-article {
+    color: #dddddd;
+}
+
+body.dark-mode .reading-article h1 {
+    color: #ffffff;
+}
+
+body.dark-mode .reading-article h2 {
+    color: #eeeeee;
+}
+
+body.dark-mode .reading-article h3 {
+    color: #dddddd;
+}
+
+body.dark-mode .reading-article code {
+    background: #2a2a2a;
+    color: #dddddd;
+}
+
+body.dark-mode .reading-article pre {
+    background: #2a2a2a;
+}
+
+body.dark-mode .reading-article blockquote {
+    border-left-color: #555555;
+    color: #aaaaaa;
+}
+
+body.dark-mode .reading-article a {
+    color: #ffffff;
+}
+
+body.dark-mode .breadcrumb {
+    color: #aaaaaa;
+    background: rgba(17, 17, 17, 0.95);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .breadcrumb-back {
+    color: #777777;
+    border-right-color: #444444;
+}
+
+body.dark-mode .rail-indicator {
+    color: #111111;
+    background: #dddddd;
+}
+
+body.dark-mode .rail-hint {
+    color: #666666;
+}

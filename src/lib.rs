@@ -40,6 +40,7 @@ struct App {
     transition_opacity: f64,       // 0.0 = faded out, 1.0 = fully visible
     transition_direction: i8,      // -1 = fading out, 0 = stable, 1 = fading in
     pending_depth_context: Option<Option<String>>, // Depth to switch to after fade out
+    dark_mode: bool,
 }
 
 impl App {
@@ -62,6 +63,7 @@ impl App {
             transition_opacity: 1.0,                 // Start fully visible
             transition_direction: 0,                 // No transition
             pending_depth_context: None,             // No pending change
+            dark_mode: false,
         })
     }
 
@@ -198,6 +200,7 @@ impl App {
                 &self.depth_context,
                 &visible_node_ids,
                 self.transition_opacity,
+                self.dark_mode,
             )
             .unwrap_or_else(|e| console_log!("Render error: {:?}", e));
     }
@@ -361,20 +364,70 @@ pub fn go_home() {
 pub fn handle_node_click(x: f64, y: f64) {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            // Convert screen coords to world coords
-            let world_x = x + app.camera.position.x - app.renderer.viewport_width() / 2.0;
-            let world_y = y + app.camera.position.y - app.renderer.viewport_height() / 2.0;
+            // Convert screen coords to world coords (accounting for zoom)
+            let zoom = app.camera.zoom;
+            let world_x = (x - app.renderer.viewport_width() / 2.0) / zoom + app.camera.position.x;
+            let world_y = (y - app.renderer.viewport_height() / 2.0) / zoom + app.camera.position.y;
 
-            // Check if any node was clicked
-            for node in app.graph.nodes.values() {
-                let dx = node.position.x - world_x;
-                let dy = node.position.y - world_y;
-                let dist = (dx * dx + dy * dy).sqrt();
+            // Get visible nodes
+            let visible_node_ids = app.get_visible_node_ids();
 
-                if dist < 20.0 {
-                    // Click radius
-                    app.camera.glide_to(node.position);
-                    break;
+            // Check if any visible node was clicked
+            for node_id in &visible_node_ids {
+                if let Some(node) = app.graph.nodes.get(node_id) {
+                    let dx = node.position.x - world_x;
+                    let dy = node.position.y - world_y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+
+                    if dist < 20.0 {
+                        // Click radius
+                        app.camera.glide_to(node.position);
+                        app.current_node = Some(node_id.clone());
+                        break;
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Handle double-click on a node - drill into it or zoom to article
+pub fn handle_node_double_click(x: f64, y: f64) {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            // Convert screen coords to world coords (accounting for zoom)
+            let zoom = app.camera.zoom;
+            let world_x = (x - app.renderer.viewport_width() / 2.0) / zoom + app.camera.position.x;
+            let world_y = (y - app.renderer.viewport_height() / 2.0) / zoom + app.camera.position.y;
+
+            // Get visible nodes
+            let visible_node_ids = app.get_visible_node_ids();
+
+            // Find which node was double-clicked
+            let mut clicked_node_id: Option<String> = None;
+            for node_id in &visible_node_ids {
+                if let Some(node) = app.graph.nodes.get(node_id) {
+                    let dx = node.position.x - world_x;
+                    let dy = node.position.y - world_y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+
+                    if dist < 25.0 {
+                        // Slightly larger radius for double-click
+                        clicked_node_id = Some(node_id.clone());
+                        break;
+                    }
+                }
+            }
+
+            // If a node was clicked, navigate into it
+            if let Some(node_id) = clicked_node_id {
+                if app.graph.has_children(&node_id) {
+                    // Drill into subgraph
+                    app.drill_into(&node_id);
+                } else {
+                    // Leaf node - set as current and zoom to article
+                    app.current_node = Some(node_id);
+                    app.camera.zoom_in();
                 }
             }
         }
@@ -386,8 +439,9 @@ pub fn handle_node_click(x: f64, y: f64) {
 pub fn try_start_node_drag(x: f64, y: f64) -> bool {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            let world_x = x + app.camera.position.x - app.renderer.viewport_width() / 2.0;
-            let world_y = y + app.camera.position.y - app.renderer.viewport_height() / 2.0;
+            let zoom = app.camera.zoom;
+            let world_x = (x - app.renderer.viewport_width() / 2.0) / zoom + app.camera.position.x;
+            let world_y = (y - app.renderer.viewport_height() / 2.0) / zoom + app.camera.position.y;
 
             // Find node under cursor
             for node in app.graph.nodes.values_mut() {
@@ -411,8 +465,9 @@ pub fn try_start_node_drag(x: f64, y: f64) -> bool {
 pub fn update_node_drag(x: f64, y: f64) {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            let world_x = x + app.camera.position.x - app.renderer.viewport_width() / 2.0;
-            let world_y = y + app.camera.position.y - app.renderer.viewport_height() / 2.0;
+            let zoom = app.camera.zoom;
+            let world_x = (x - app.renderer.viewport_width() / 2.0) / zoom + app.camera.position.x;
+            let world_y = (y - app.renderer.viewport_height() / 2.0) / zoom + app.camera.position.y;
 
             for node in app.graph.nodes.values_mut() {
                 if node.is_dragged {
@@ -487,6 +542,15 @@ pub fn is_rail_mode() -> bool {
             false
         }
     })
+}
+
+// Toggle dark mode
+pub fn toggle_dark_mode() {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            app.dark_mode = !app.dark_mode;
+        }
+    });
 }
 
 // Zoom in on current/highlighted node (Enter or double-click)
