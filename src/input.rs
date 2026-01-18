@@ -20,7 +20,6 @@ pub struct InputState {
     pub scroll_delta: Vec2,
     last_mouse: Vec2,
     last_g_time: f64,
-    last_b_time: f64,
     last_click_time: f64,
     last_click_pos: Vec2,
 }
@@ -43,7 +42,6 @@ impl InputState {
             scroll_delta: Vec2::zero(),
             last_mouse: Vec2::zero(),
             last_g_time: 0.0,
-            last_b_time: 0.0,
             last_click_time: 0.0,
             last_click_pos: Vec2::zero(),
         }
@@ -79,11 +77,9 @@ pub fn setup_listeners() -> Result<(), JsValue> {
             return;
         }
 
-        // Handle Escape - zoom out
+        // Handle Escape - zoom out or go up a level
         if key == "Escape" {
-            if is_zoomed_in() {
-                zoom_out();
-            }
+            zoom_out();
             return;
         }
 
@@ -109,17 +105,9 @@ pub fn setup_listeners() -> Result<(), JsValue> {
             return;
         }
 
-        // Handle bb (toggle rail mode) separately
+        // Handle b (toggle rail mode)
         if key == "b" {
-            let should_toggle = with_input_result(|input| {
-                let now = js_sys::Date::now();
-                let result = now - input.last_b_time < 500.0;
-                input.last_b_time = now;
-                result
-            });
-            if should_toggle {
-                toggle_rail_mode();
-            }
+            toggle_rail_mode();
             return;
         }
 
@@ -288,8 +276,12 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     document.add_event_listener_with_callback("mouseup", mouseup_closure.as_ref().unchecked_ref())?;
     mouseup_closure.forget();
 
-    // Wheel (trackpad/scroll)
+    // Wheel (trackpad/scroll) - only capture when not in reading mode
     let wheel_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::WheelEvent| {
+        // In reading mode (zoomed in on article), let the browser handle scrolling
+        if is_zoomed_in() {
+            return;
+        }
         event.prevent_default();
         with_input(|input| {
             input.scroll_delta = Vec2::new(event.delta_x(), event.delta_y());

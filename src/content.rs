@@ -7,46 +7,62 @@ pub fn build_graph() -> Graph {
     let mut graph = Graph::new();
 
     // ═══════════════════════════════════════════════════════════════
-    // ANCHOR NODES (categories with fixed positions)
+    // ROOT LEVEL - Main categories (these appear at top level)
     // ═══════════════════════════════════════════════════════════════
 
-    graph.add_anchor(
+    graph.add_root(
         "home",
         vec2(0.0, 0.0),
         "Welcome",
-        "Navigate with h/j/k/l or arrow keys.\nClick a node to jump to it.\nPress gg to return home.\nPress bb for rail mode.",
+        "Navigate with h/j/k/l or arrow keys.\nClick a node to jump to it.\nPress gg to return home.\nPress b for rail mode.\nPress Enter to drill into nodes.",
+        None,
     );
 
-    graph.add_anchor(
+    graph.add_root(
         "projects",
         vec2(600.0, -200.0),
         "Projects",
-        "Things I've built.",
+        "Things I've built.\nEnter to explore.",
+        None,
     );
 
-    graph.add_anchor(
+    graph.add_root(
         "writing",
         vec2(-500.0, 200.0),
         "Writing",
-        "Essays and notes.",
+        "Essays and notes.\nEnter to explore.",
+        None,
     );
 
-    graph.add_anchor(
+    graph.add_root(
         "about",
         vec2(400.0, 400.0),
         "About",
         "Who I am.",
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: About
+
+I'm a developer who enjoys building tools that help people think.
+
+This website is an experiment in non-linear navigation—a way to explore ideas spatially rather than through traditional menus and links.
+
+## Contact
+
+Feel free to reach out if you'd like to chat about any of the projects or ideas here."#),
     );
 
+    // Undirected edges between root nodes (associations)
+    graph.add_association("projects", "writing", Some("topic: programming"));
+
     // ═══════════════════════════════════════════════════════════════
-    // CONTENT NODES (positioned relative to anchors by layout)
+    // CHILDREN OF "projects" - Drill into "projects" to see these
     // ═══════════════════════════════════════════════════════════════
 
-    graph.add_content(
+    graph.add_child(
         "project-alpha",
+        "projects",
         "Project Alpha",
         "A cool thing I made.\nIt does interesting stuff.",
-        Some(r#"# Project Alpha
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Alpha
 
 This is a longer description of Project Alpha that becomes visible when you zoom in.
 
@@ -65,46 +81,95 @@ The most challenging part was getting the performance right. Early versions woul
 1. Profile before optimizing
 2. The browser is faster than you think
 3. But the DOM is slower than you think"#),
-        &["projects"],
     );
 
-    graph.add_content(
+    graph.add_child(
         "project-beta",
+        "projects",
         "Project Beta",
-        "Another project.\nThis one is different.",
-        Some(r#"# Project Beta
-
-A command-line tool for managing personal knowledge bases.
-
-I built this because I was frustrated with existing note-taking apps. They either lock you into proprietary formats or require too much manual organization.
-
-This tool takes a different approach: plain text files with minimal markup, automatic linking based on content similarity, and a fast full-text search.
-
-## Usage
-
-```bash
-$ beta add "Today I learned about..."
-$ beta search "that thing from last week"
-$ beta graph --output=viz.html
-```
-
-The graph visualization was actually the seed for this website's design."#),
-        &["projects"],
+        "A CLI tool with sub-features.\nEnter to explore.",
+        None, // No article - has children instead
     );
 
-    graph.add_content(
+    graph.add_child(
         "project-gamma",
+        "projects",
         "Project Gamma",
         "Yet another thing.\nStill pretty neat.",
-        None,
-        &["projects", "writing"],
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Gamma
+
+A cross-platform utility for automating repetitive tasks.
+
+Built with simplicity in mind—no configuration files, just command-line flags and sensible defaults."#),
     );
 
-    graph.add_content(
+    // ═══════════════════════════════════════════════════════════════
+    // CHILDREN OF "project-beta" - Drill into "project-beta" to see these
+    // ═══════════════════════════════════════════════════════════════
+
+    graph.add_child(
+        "beta-search",
+        "project-beta",
+        "Search",
+        "Full-text search feature.",
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Search
+
+The search feature uses a custom inverted index for fast full-text search across all your notes.
+
+## How It Works
+
+1. Text is tokenized and normalized
+2. Tokens are stored in an inverted index
+3. Queries are parsed and matched against the index
+4. Results are ranked by relevance
+
+The index is persistent and updates incrementally as you add or modify notes."#),
+    );
+
+    graph.add_child(
+        "beta-graph",
+        "project-beta",
+        "Graph View",
+        "Visualize connections.",
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Graph View
+
+The graph view shows how your notes connect to each other.
+
+Connections are detected automatically based on:
+- Explicit links between notes
+- Shared tags and keywords
+- Semantic similarity (using embeddings)
+
+This visualization was the inspiration for this website's design."#),
+    );
+
+    graph.add_child(
+        "beta-export",
+        "project-beta",
+        "Export",
+        "Export to various formats.",
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Export
+
+Export your knowledge base to different formats:
+
+- **Markdown**: Plain text, portable
+- **HTML**: Static site generation
+- **JSON**: For programmatic access
+- **PDF**: For printing or sharing
+
+All exports preserve links and structure."#),
+    );
+
+    // ═══════════════════════════════════════════════════════════════
+    // CHILDREN OF "writing" - Drill into "writing" to see these
+    // ═══════════════════════════════════════════════════════════════
+
+    graph.add_child(
         "essay-minimalism",
+        "writing",
         "On Minimalism",
         "Less is more, usually.\nSometimes less is just less.",
-        Some(r#"# On Minimalism
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: On Minimalism
 
 There's a certain kind of simplicity that's actually complexity in disguise. A "minimal" interface that hides essential controls. A "clean" API that forces you to write boilerplate elsewhere.
 
@@ -121,14 +186,14 @@ This principle guided the design of this website:
 - The interface is the content
 
 Of course, this approach has tradeoffs. Discoverability suffers. New visitors might feel lost. But for the kind of slow, exploratory reading I want to encourage, getting a little lost is part of the point."#),
-        &["writing"],
     );
 
-    graph.add_content(
+    graph.add_child(
         "essay-tools",
+        "writing",
         "Tools for Thought",
         "The tools we use shape how we think.\nChoose wisely.",
-        Some(r#"# Tools for Thought
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Tools for Thought
 
 > "We shape our tools and thereafter our tools shape us."
 > — Marshall McLuhan
@@ -148,14 +213,14 @@ I've been thinking about what a tool for thought optimized for exploration would
 - Something more like a garden—or a map
 
 This website is an experiment in that direction."#),
-        &["writing"],
     );
 
-    graph.add_content(
+    graph.add_child(
         "note-rust",
+        "writing",
         "Notes on Rust",
         "The borrow checker is your friend.\nEventually.",
-        Some(r#"# Notes on Rust
+        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Notes on Rust
 
 Learning Rust felt like learning to program all over again.
 
@@ -169,13 +234,35 @@ The borrow checker is infamous for rejecting code that "obviously" works. But af
 
 Once it clicks, you find yourself writing better code in other languages too. You notice when you're holding references too long, when ownership is unclear, when data races could occur.
 
+## A Mathematical Aside
+
+Ownership can be thought of formally. If we let $O(v)$ represent the owner of value $v$, then:
+
+$$\forall v : |O(v)| = 1$$
+
+That is, every value has exactly one owner at any given time. The borrow checker enforces this invariant at compile time, which is why Rust can guarantee memory safety without a garbage collector.
+
+The complexity of the borrow checker is roughly $O(n \cdot m)$ where $n$ is the number of variables and $m$ is the number of lifetimes.
+
 ## The Bigger Lesson
 
 Rust didn't teach me how to write Rust. It taught me how to think about memory, concurrency, and program structure in a deeper way.
 
 *This website is written in Rust, compiled to WebAssembly.*"#),
-        &["writing", "projects"],
     );
+
+    // ═══════════════════════════════════════════════════════════════
+    // UNDIRECTED ASSOCIATIONS - Cross-hierarchy connections
+    // ═══════════════════════════════════════════════════════════════
+
+    // project-alpha is associated with note-rust (both about Rust/programming)
+    graph.add_association("project-alpha", "note-rust", Some("language: rust"));
+
+    // beta-graph is associated with essay-tools (both about visualization/tools)
+    graph.add_association("beta-graph", "essay-tools", Some("topic: visualization"));
+
+    // project-gamma connects writing and projects
+    graph.add_association("project-gamma", "essay-minimalism", Some("topic: simplicity"));
 
     // ═══════════════════════════════════════════════════════════════
     // RUN INITIAL LAYOUT

@@ -1,0 +1,15 @@
+{
+  "name": "personal_site",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "personal_site_bg.wasm",
+    "personal_site.js",
+    "personal_site.d.ts"
+  ],
+  "main": "personal_site.js",
+  "types": "personal_site.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

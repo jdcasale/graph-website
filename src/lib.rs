@@ -35,6 +35,11 @@ struct App {
     last_time: f64,
     rail_mode: bool,
     current_node: Option<String>,
+    depth_context: Option<String>, // ID of node we're "inside" (None = root level)
+    depth_stack: Vec<String>,      // Breadcrumb trail for back navigation
+    transition_opacity: f64,       // 0.0 = faded out, 1.0 = fully visible
+    transition_direction: i8,      // -1 = fading out, 0 = stable, 1 = fading in
+    pending_depth_context: Option<Option<String>>, // Depth to switch to after fade out
 }
 
 impl App {
@@ -52,6 +57,11 @@ impl App {
             last_time: 0.0,
             rail_mode: false,
             current_node: Some("home".to_string()), // Start at home node
+            depth_context: None,                     // Start at root level
+            depth_stack: Vec::new(),                 // Empty breadcrumb trail
+            transition_opacity: 1.0,                 // Start fully visible
+            transition_direction: 0,                 // No transition
+            pending_depth_context: None,             // No pending change
         })
     }
 
@@ -65,6 +75,50 @@ impl App {
 
         // Cap dt to prevent huge jumps
         let dt = dt.min(0.1);
+
+        // Handle depth transition animation
+        let transition_speed = 4.0; // Speed of fade in/out
+        if self.transition_direction == -1 {
+            // Fading out
+            self.transition_opacity -= transition_speed * dt;
+            if self.transition_opacity <= 0.0 {
+                self.transition_opacity = 0.0;
+                // Switch to pending depth context
+                if let Some(new_context) = self.pending_depth_context.take() {
+                    self.depth_context = new_context;
+                    // Reset camera for new view
+                    self.camera.position = graph::Vec2::zero();
+                    self.camera.velocity = graph::Vec2::zero();
+                    self.camera.target = None;
+                    // Snap to first visible node in rail mode
+                    if self.rail_mode {
+                        self.snap_to_nearest_visible_node();
+                    } else {
+                        self.current_node = None;
+                    }
+                }
+                // Start fading in
+                self.transition_direction = 1;
+            }
+        } else if self.transition_direction == 1 {
+            // Fading in
+            self.transition_opacity += transition_speed * dt;
+            if self.transition_opacity >= 1.0 {
+                self.transition_opacity = 1.0;
+                self.transition_direction = 0; // Done
+            }
+        }
+
+        // Determine visible nodes based on depth context
+        let visible_node_ids: Vec<String> = if let Some(ref context_id) = self.depth_context {
+            self.graph.get_subgraph_nodes(context_id)
+        } else {
+            self.graph
+                .get_root_nodes()
+                .iter()
+                .map(|n| n.id.clone())
+                .collect()
+        };
 
         // Handle continuous node movement (Shift+hjkl in rail mode)
         if self.rail_mode {
@@ -103,25 +157,27 @@ impl App {
         // Update camera based on input
         self.camera.update(&self.input, dt);
 
-        // Run physics simulation
-        layout::step(&mut self.graph, dt);
+        // Run physics simulation only on visible nodes
+        layout::step(&mut self.graph, dt, &visible_node_ids);
 
-        // Determine which node to highlight (and update current_node for zoom target)
+        // Determine which node to highlight (only from visible nodes)
         let highlight_node = if self.rail_mode {
             self.current_node.clone()
         } else {
-            // Find node closest to camera center (if within reasonable distance)
+            // Find visible node closest to camera center (if within reasonable distance)
             let mut closest: Option<(String, f64)> = None;
             let center_threshold = 200.0; // Max distance from center to highlight
 
-            for (id, node) in &self.graph.nodes {
-                let dx = node.position.x - self.camera.position.x;
-                let dy = node.position.y - self.camera.position.y;
-                let dist = (dx * dx + dy * dy).sqrt();
+            for id in &visible_node_ids {
+                if let Some(node) = self.graph.nodes.get(id) {
+                    let dx = node.position.x - self.camera.position.x;
+                    let dy = node.position.y - self.camera.position.y;
+                    let dist = (dx * dx + dy * dy).sqrt();
 
-                if dist < center_threshold {
-                    if closest.is_none() || dist < closest.as_ref().unwrap().1 {
-                        closest = Some((id.clone(), dist));
+                    if dist < center_threshold {
+                        if closest.is_none() || dist < closest.as_ref().unwrap().1 {
+                            closest = Some((id.clone(), dist));
+                        }
                     }
                 }
             }
@@ -132,10 +188,84 @@ impl App {
             closest_node
         };
 
-        // Render
+        // Render with depth context and transition opacity
         self.renderer
-            .render(&self.graph, &self.camera, self.rail_mode, &highlight_node)
+            .render(
+                &self.graph,
+                &self.camera,
+                self.rail_mode,
+                &highlight_node,
+                &self.depth_context,
+                &visible_node_ids,
+                self.transition_opacity,
+            )
             .unwrap_or_else(|e| console_log!("Render error: {:?}", e));
+    }
+
+    /// Drill into a node's subgraph (if it has children)
+    fn drill_into(&mut self, node_id: &str) {
+        if self.graph.has_children(node_id) && self.transition_direction == 0 {
+            // Push current context to stack for back navigation
+            if let Some(ref ctx) = self.depth_context {
+                self.depth_stack.push(ctx.clone());
+            }
+            // Start fade-out transition, store pending context
+            self.pending_depth_context = Some(Some(node_id.to_string()));
+            self.transition_direction = -1;
+        }
+    }
+
+    /// Go up one level in the depth hierarchy
+    fn go_up_level(&mut self) -> bool {
+        if self.depth_context.is_some() && self.transition_direction == 0 {
+            // Get the parent context from the stack
+            let parent_context = self.depth_stack.pop();
+            // Start fade-out transition, store pending context
+            self.pending_depth_context = Some(parent_context);
+            self.transition_direction = -1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get the IDs of currently visible nodes based on depth context
+    fn get_visible_node_ids(&self) -> Vec<String> {
+        if let Some(ref context_id) = self.depth_context {
+            self.graph.get_subgraph_nodes(context_id)
+        } else {
+            self.graph
+                .get_root_nodes()
+                .iter()
+                .map(|n| n.id.clone())
+                .collect()
+        }
+    }
+
+    /// Snap camera and current_node to the nearest visible node
+    fn snap_to_nearest_visible_node(&mut self) {
+        let visible_node_ids = self.get_visible_node_ids();
+        let camera_pos = self.camera.position;
+        let mut nearest: Option<(String, f64)> = None;
+
+        for id in &visible_node_ids {
+            if let Some(node) = self.graph.nodes.get(id) {
+                let dx = node.position.x - camera_pos.x;
+                let dy = node.position.y - camera_pos.y;
+                let dist = (dx * dx + dy * dy).sqrt();
+
+                if nearest.is_none() || dist < nearest.as_ref().unwrap().1 {
+                    nearest = Some((id.clone(), dist));
+                }
+            }
+        }
+
+        if let Some((id, _)) = nearest {
+            if let Some(node) = self.graph.nodes.get(&id) {
+                self.camera.position = node.position;
+                self.current_node = Some(id);
+            }
+        }
     }
 }
 
@@ -218,6 +348,10 @@ where
 pub fn go_home() {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
+            // Reset to root level
+            app.depth_context = None;
+            app.depth_stack.clear();
+            app.current_node = Some("home".to_string());
             app.camera.go_home();
         }
     });
@@ -312,17 +446,20 @@ pub fn toggle_rail_mode() -> bool {
             app.rail_mode = !app.rail_mode;
 
             if app.rail_mode {
-                // Entering rail mode - snap to nearest node
+                // Entering rail mode - snap to nearest VISIBLE node
                 let camera_pos = app.camera.position;
+                let visible_node_ids = app.get_visible_node_ids();
                 let mut nearest: Option<(String, f64)> = None;
 
-                for (id, node) in &app.graph.nodes {
-                    let dx = node.position.x - camera_pos.x;
-                    let dy = node.position.y - camera_pos.y;
-                    let dist = (dx * dx + dy * dy).sqrt();
+                for id in &visible_node_ids {
+                    if let Some(node) = app.graph.nodes.get(id) {
+                        let dx = node.position.x - camera_pos.x;
+                        let dy = node.position.y - camera_pos.y;
+                        let dist = (dx * dx + dy * dy).sqrt();
 
-                    if nearest.is_none() || dist < nearest.as_ref().unwrap().1 {
-                        nearest = Some((id.clone(), dist));
+                        if nearest.is_none() || dist < nearest.as_ref().unwrap().1 {
+                            nearest = Some((id.clone(), dist));
+                        }
                     }
                 }
 
@@ -353,24 +490,74 @@ pub fn is_rail_mode() -> bool {
 }
 
 // Zoom in on current/highlighted node (Enter or double-click)
+// If node has children, drill into subgraph; if leaf, zoom to article
 pub fn zoom_in_current() {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            // Only zoom if there's a current node to zoom on
-            if app.current_node.is_some() {
-                app.camera.zoom_in();
+            if let Some(ref node_id) = app.current_node.clone() {
+                // Check if this node has children
+                if app.graph.has_children(node_id) {
+                    // Drill into subgraph
+                    app.drill_into(node_id);
+                } else {
+                    // Leaf node - zoom to article (if it has one)
+                    app.camera.zoom_in();
+                }
             }
         }
     });
 }
 
-// Zoom out (Escape)
+// Zoom out (Escape) - if zoomed on article, zoom out; otherwise go up a level
 pub fn zoom_out() {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            app.camera.zoom_out();
+            if app.camera.is_zoomed_in() {
+                // Currently viewing an article, zoom out to graph view
+                app.camera.zoom_out();
+            } else {
+                // In graph view, try to go up a depth level
+                app.go_up_level();
+            }
         }
     });
+}
+
+// Check if we're inside a subgraph (not at root level)
+pub fn is_in_subgraph() -> bool {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow().as_ref() {
+            app.depth_context.is_some()
+        } else {
+            false
+        }
+    })
+}
+
+// Get the current depth context (for breadcrumb display)
+pub fn get_depth_context() -> Option<String> {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow().as_ref() {
+            app.depth_context.clone()
+        } else {
+            None
+        }
+    })
+}
+
+// Get the breadcrumb path (for display)
+pub fn get_breadcrumb_path() -> Vec<String> {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow().as_ref() {
+            let mut path = app.depth_stack.clone();
+            if let Some(ref ctx) = app.depth_context {
+                path.push(ctx.clone());
+            }
+            path
+        } else {
+            Vec::new()
+        }
+    })
 }
 
 // Check if zoomed in
@@ -435,20 +622,27 @@ pub fn navigate_rail(direction: char) {
                 None => return,
             };
 
-            // Find all connected nodes
+            // Get visible nodes - we can only navigate to these
+            let visible_node_ids = app.get_visible_node_ids();
+
+            // Find all connected nodes that are VISIBLE
             let mut connected: Vec<String> = Vec::new();
 
-            // Direct connections from current node
+            // Direct connections from current node (filtered to visible)
             if let Some(node) = app.graph.nodes.get(&current_id) {
-                connected.extend(node.connections.clone());
+                for conn in &node.connections {
+                    if visible_node_ids.contains(conn) && !connected.contains(conn) {
+                        connected.push(conn.clone());
+                    }
+                }
             }
 
-            // Reverse connections (edges pointing to current node)
+            // Reverse connections (edges pointing to current node, filtered to visible)
             for edge in &app.graph.edges {
-                if edge.to == current_id && !connected.contains(&edge.from) {
+                if edge.to == current_id && visible_node_ids.contains(&edge.from) && !connected.contains(&edge.from) {
                     connected.push(edge.from.clone());
                 }
-                if edge.from == current_id && !connected.contains(&edge.to) {
+                if edge.from == current_id && visible_node_ids.contains(&edge.to) && !connected.contains(&edge.to) {
                     connected.push(edge.to.clone());
                 }
             }

@@ -9,11 +9,14 @@ const VELOCITY_DAMPING: f64 = 0.96;         // Velocity decay per frame (higher 
 const MIN_DISTANCE: f64 = 60.0;             // Minimum distance for repulsion calc
 const MAX_FORCE: f64 = 1000.0;              // Cap force magnitude
 const VELOCITY_THRESHOLD: f64 = 0.05;       // Stop when velocity below this
+const MIN_REPULSION_FORCE: f64 = 0.5;       // Clip repulsion forces below this threshold to zero
 
 /// Run one step of the physics simulation.
 /// Call this every frame for continuous movement.
-pub fn step(graph: &mut Graph, dt: f64) {
-    let node_ids: Vec<String> = graph.nodes.keys().cloned().collect();
+/// Only processes nodes in visible_node_ids.
+pub fn step(graph: &mut Graph, dt: f64, visible_node_ids: &[String]) {
+    // Only process visible nodes
+    let node_ids: Vec<String> = visible_node_ids.to_vec();
 
     // Calculate forces for each node
     let mut forces: Vec<(String, Vec2)> = Vec::new();
@@ -101,6 +104,12 @@ pub fn step(graph: &mut Graph, dt: f64) {
             // Add MIN_DISTANCE to prevent division issues and ensure smooth falloff
             let effective_dist = (box_dist + MIN_DISTANCE).max(MIN_DISTANCE);
             let strength = REPULSION_STRENGTH / (effective_dist * effective_dist);
+
+            // Clip small repulsion forces to zero to prevent infinite expansion
+            if strength < MIN_REPULSION_FORCE {
+                continue;
+            }
+
             let repulsion = direction * strength;
             force = force + repulsion;
         }
@@ -180,8 +189,11 @@ pub fn step(graph: &mut Graph, dt: f64) {
 /// Run initial layout iterations to get a stable starting state.
 /// Call this once at startup.
 pub fn initialize(graph: &mut Graph, iterations: usize) {
+    // Get all node IDs for initial layout
+    let all_node_ids: Vec<String> = graph.nodes.keys().cloned().collect();
+
     for _ in 0..iterations {
-        step(graph, 0.016); // Simulate at ~60fps
+        step(graph, 0.016, &all_node_ids); // Simulate at ~60fps
     }
 
     // Clear velocities after initial layout

@@ -198,3 +198,48 @@ body:active {
 .reading-article a:hover {
     text-decoration: none;
 }
+
+/* Breadcrumb navigation */
+.breadcrumb {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    z-index: 100;
+    font-size: 13px;
+    color: #555555;
+    background: rgba(255, 255, 255, 0.95);
+    padding: 8px 14px;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    pointer-events: auto;
+    display: none;
+}
+
+.breadcrumb-back {
+    color: #888888;
+    margin-right: 12px;
+    padding-right: 12px;
+    border-right: 1px solid #dddddd;
+}
+
+/* Rail mode indicator */
+.rail-indicator {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 100;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #ffffff;
+    background: #333333;
+    padding: 6px 12px;
+    border-radius: 4px;
+    display: none;
+}
+
+.rail-hint {
+    font-weight: 400;
+    color: #aaaaaa;
+    margin-left: 8px;
+}
