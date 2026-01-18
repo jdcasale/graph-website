@@ -319,8 +319,17 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     // TOUCH HANDLERS
     // ═══════════════════════════════════════════════════════════════
 
+    // Get canvas element for touch events
+    let canvas = document
+        .get_element_by_id("canvas")
+        .ok_or("no canvas")?;
+
     // Touch start - begin drag or pinch
     let touchstart_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+        // Prevent default early to stop browser gestures
+        event.prevent_default();
+        event.stop_propagation();
+
         let touches = event.touches();
         let touch_count = touches.length();
 
@@ -362,16 +371,11 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                 end_node_drag(0.0, 0.0);
             }
         }
-
-        // Prevent default to avoid scrolling
-        if !is_zoomed_in() {
-            event.prevent_default();
-        }
     });
 
     let touch_options = web_sys::AddEventListenerOptions::new();
     touch_options.set_passive(false);
-    document.add_event_listener_with_callback_and_add_event_listener_options(
+    canvas.add_event_listener_with_callback_and_add_event_listener_options(
         "touchstart",
         touchstart_closure.as_ref().unchecked_ref(),
         &touch_options,
@@ -379,7 +383,14 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     touchstart_closure.forget();
 
     // Touch move - drag or pinch
+    let canvas_move = document
+        .get_element_by_id("canvas")
+        .ok_or("no canvas")?;
     let touchmove_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+        // Prevent default early
+        event.prevent_default();
+        event.stop_propagation();
+
         let touches = event.touches();
         let touch_count = touches.length();
 
@@ -432,16 +443,11 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                 });
             }
         }
-
-        // Prevent default to avoid scrolling
-        if !is_zoomed_in() {
-            event.prevent_default();
-        }
     });
 
     let touchmove_options = web_sys::AddEventListenerOptions::new();
     touchmove_options.set_passive(false);
-    document.add_event_listener_with_callback_and_add_event_listener_options(
+    canvas_move.add_event_listener_with_callback_and_add_event_listener_options(
         "touchmove",
         touchmove_closure.as_ref().unchecked_ref(),
         &touchmove_options,
@@ -449,7 +455,13 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     touchmove_closure.forget();
 
     // Touch end - handle tap/double-tap or release drag
+    let canvas_end = document
+        .get_element_by_id("canvas")
+        .ok_or("no canvas")?;
     let touchend_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+        event.prevent_default();
+        event.stop_propagation();
+
         let changed_touches = event.changed_touches();
         let remaining_touches = event.touches().length();
 
@@ -524,11 +536,21 @@ pub fn setup_listeners() -> Result<(), JsValue> {
         }
     });
 
-    document.add_event_listener_with_callback("touchend", touchend_closure.as_ref().unchecked_ref())?;
+    let touchend_options = web_sys::AddEventListenerOptions::new();
+    touchend_options.set_passive(false);
+    canvas_end.add_event_listener_with_callback_and_add_event_listener_options(
+        "touchend",
+        touchend_closure.as_ref().unchecked_ref(),
+        &touchend_options,
+    )?;
     touchend_closure.forget();
 
     // Touch cancel - same as touch end
-    let touchcancel_closure = Closure::<dyn FnMut(_)>::new(move |_event: web_sys::TouchEvent| {
+    let canvas_cancel = document
+        .get_element_by_id("canvas")
+        .ok_or("no canvas")?;
+    let touchcancel_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+        event.prevent_default();
         with_input(|input| {
             if input.is_dragging_node {
                 end_node_drag(0.0, 0.0);
@@ -542,7 +564,13 @@ pub fn setup_listeners() -> Result<(), JsValue> {
         });
     });
 
-    document.add_event_listener_with_callback("touchcancel", touchcancel_closure.as_ref().unchecked_ref())?;
+    let touchcancel_options = web_sys::AddEventListenerOptions::new();
+    touchcancel_options.set_passive(false);
+    canvas_cancel.add_event_listener_with_callback_and_add_event_listener_options(
+        "touchcancel",
+        touchcancel_closure.as_ref().unchecked_ref(),
+        &touchcancel_options,
+    )?;
     touchcancel_closure.forget();
 
     Ok(())
