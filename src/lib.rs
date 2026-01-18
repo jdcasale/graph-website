@@ -153,11 +153,11 @@ impl App {
             }
         }
 
-        // Clear input deltas (they accumulate from events)
-        self.input.clear_deltas();
-
         // Update camera based on input
         self.camera.update(&self.input, dt);
+
+        // Clear input deltas AFTER camera uses them
+        self.input.clear_deltas();
 
         // Run physics simulation only on visible nodes
         layout::step(&mut self.graph, dt, &visible_node_ids);
