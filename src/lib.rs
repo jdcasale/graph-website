@@ -352,6 +352,9 @@ thread_local! {
 
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
+    // Set up panic hook for better error messages in browser console
+    console_error_panic_hook::set_once();
+
     console_log!("Initializing Pensieve...");
 
     // Create app

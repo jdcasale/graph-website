@@ -83,7 +83,14 @@
 
     <script type="module">
         import init from './pkg/pensieve.js';
-        init();
+        init().catch(err => {
+            console.error('WASM initialization failed:', err);
+            // Show error to user
+            const overlay = document.getElementById('intro-overlay');
+            if (overlay) {
+                overlay.innerHTML = '<div style="color: red; padding: 20px;">Error loading: ' + err + '</div>';
+            }
+        });
     </script>
 </body>
 </html>
