@@ -757,6 +757,8 @@ pub fn toggle_tag(key: &str, value: &str) {
             }
         }
     });
+    // Update rail edges since tag-inferred connections may have changed
+    update_rail_edges();
 }
 
 // Clear all active tags
@@ -830,6 +832,8 @@ pub fn toggle_all_tags() {
             }
         }
     });
+    // Update rail edges since tag-inferred connections may have changed
+    update_rail_edges();
 }
 
 // Cycle to next tag on current node (Tab key)
@@ -883,6 +887,7 @@ pub fn toggle_highlighted_tag() {
             }
         }
     });
+    update_rail_edges();
 }
 
 // Get the currently highlighted tag index (for rendering)
