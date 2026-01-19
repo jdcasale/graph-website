@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Personal Site</title>
+    <title>Pensieve</title>
     <link rel="stylesheet" href="style.css">
     <!-- KaTeX for LaTeX rendering -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
@@ -11,8 +11,52 @@
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
 </head>
 <body>
+    <!-- Intro overlay with Pensieve quote -->
+    <div id="intro-overlay">
+        <div class="intro-content">
+            <p class="intro-quote">
+                "I sometimes find, and I am sure you know the feeling, that I simply have too many thoughts and memories crammed into my mind..."
+            </p>
+            <p class="intro-quote intro-quote-delayed">
+                "One simply siphons the excess thoughts from one's mind, pours them into the basin, and examines them at one's leisure."
+            </p>
+            <p class="intro-quote intro-quote-delayed-2">
+                "It becomes easier to spot patterns and links, you understand, when they are in this form."
+            </p>
+        </div>
+    </div>
+
     <canvas id="canvas"></canvas>
     <div id="content"></div>
+
+    <!-- Help overlay -->
+    <div id="help-overlay" class="hidden">
+        <div class="help-content">
+            <h2>Keybinds</h2>
+            <div class="help-section">
+                <h3>Navigation</h3>
+                <div class="help-row"><span class="key">h/j/k/l</span> or <span class="key">arrows</span> Pan / Navigate</div>
+                <div class="help-row"><span class="key">Enter</span> Drill into node</div>
+                <div class="help-row"><span class="key">Escape</span> Go back / Zoom out</div>
+                <div class="help-row"><span class="key">gg</span> Go home</div>
+            </div>
+            <div class="help-section">
+                <h3>Modes</h3>
+                <div class="help-row"><span class="key">b</span> Toggle rail mode</div>
+                <div class="help-row"><span class="key">d</span> Toggle dark mode</div>
+            </div>
+            <div class="help-section">
+                <h3>Tags</h3>
+                <div class="help-row"><span class="key">Tab</span> Cycle through tags</div>
+                <div class="help-row"><span class="key">t</span> Toggle highlighted tag</div>
+                <div class="help-row"><span class="key">tt</span> Toggle all tags</div>
+                <div class="help-row"><span class="key">p</span> Prune to current connections</div>
+            </div>
+            <div class="help-section">
+                <div class="help-row"><span class="key">?</span> Toggle this help</div>
+            </div>
+        </div>
+    </div>
 
     <script>
         // Render LaTeX in an element using KaTeX auto-render
@@ -32,7 +76,7 @@
     </script>
 
     <script type="module">
-        import init from './pkg/personal_site.js';
+        import init from './pkg/pensieve.js';
         init();
     </script>
 </body>

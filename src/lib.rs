@@ -41,6 +41,9 @@ struct App {
     transition_direction: i8,      // -1 = fading out, 0 = stable, 1 = fading in
     pending_depth_context: Option<Option<String>>, // Depth to switch to after fade out
     dark_mode: bool,
+    active_tags: Vec<(String, String)>, // Active tag filters - each shows connections in different style
+    prune_mode: bool, // When true, only show nodes connected to current node via active tags
+    highlighted_tag_index: Option<usize>, // Currently highlighted tag on current node (for Tab cycling)
 }
 
 impl App {
@@ -64,6 +67,9 @@ impl App {
             transition_direction: 0,                 // No transition
             pending_depth_context: None,             // No pending change
             dark_mode: false,
+            active_tags: Vec::new(),                 // No tags selected
+            prune_mode: false,                       // Show all nodes with active tags
+            highlighted_tag_index: None,             // No tag highlighted
         })
     }
 
@@ -111,8 +117,19 @@ impl App {
             }
         }
 
-        // Determine visible nodes based on depth context
-        let visible_node_ids: Vec<String> = if let Some(ref context_id) = self.depth_context {
+        // Determine visible nodes based on active tags or depth context
+        let visible_node_ids: Vec<String> = if !self.active_tags.is_empty() {
+            // Tag filter mode: show all nodes with ANY of the active tags
+            let mut node_ids: Vec<String> = Vec::new();
+            for (key, value) in &self.active_tags {
+                for id in self.graph.get_nodes_with_tag(key, value) {
+                    if !node_ids.contains(&id) {
+                        node_ids.push(id);
+                    }
+                }
+            }
+            node_ids
+        } else if let Some(ref context_id) = self.depth_context {
             self.graph.get_subgraph_nodes(context_id)
         } else {
             self.graph
@@ -190,7 +207,7 @@ impl App {
             closest_node
         };
 
-        // Render with depth context and transition opacity
+        // Render with depth context, transition opacity, and active tags
         self.renderer
             .render(
                 &self.graph,
@@ -201,6 +218,8 @@ impl App {
                 &visible_node_ids,
                 self.transition_opacity,
                 self.dark_mode,
+                &self.active_tags,
+                self.highlighted_tag_index,
             )
             .unwrap_or_else(|e| console_log!("Render error: {:?}", e));
     }
@@ -232,9 +251,48 @@ impl App {
         }
     }
 
-    /// Get the IDs of currently visible nodes based on depth context
+    /// Get the IDs of currently visible nodes based on active tags or depth context
     fn get_visible_node_ids(&self) -> Vec<String> {
-        if let Some(ref context_id) = self.depth_context {
+        if !self.active_tags.is_empty() {
+            if self.prune_mode {
+                // Prune mode: only show nodes connected to current node via active tags
+                if let Some(ref current_id) = self.current_node {
+                    // Get current node's active tags
+                    let current_tags: Vec<(String, String)> = if let Some(node) = self.graph.nodes.get(current_id) {
+                        node.tags.iter()
+                            .filter(|t| self.active_tags.contains(t))
+                            .cloned()
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+
+                    // Find nodes that share any of current node's active tags
+                    let mut node_ids: Vec<String> = vec![current_id.clone()];
+                    for (key, value) in &current_tags {
+                        for id in self.graph.get_nodes_with_tag(key, value) {
+                            if !node_ids.contains(&id) {
+                                node_ids.push(id);
+                            }
+                        }
+                    }
+                    node_ids
+                } else {
+                    Vec::new()
+                }
+            } else {
+                // Normal tag filter mode: show all nodes with ANY of the active tags
+                let mut node_ids: Vec<String> = Vec::new();
+                for (key, value) in &self.active_tags {
+                    for id in self.graph.get_nodes_with_tag(key, value) {
+                        if !node_ids.contains(&id) {
+                            node_ids.push(id);
+                        }
+                    }
+                }
+                node_ids
+            }
+        } else if let Some(ref context_id) = self.depth_context {
             self.graph.get_subgraph_nodes(context_id)
         } else {
             self.graph
@@ -278,7 +336,7 @@ thread_local! {
 
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
-    console_log!("Initializing personal site...");
+    console_log!("Initializing Pensieve...");
 
     // Create app
     let app = App::new()?;
@@ -294,7 +352,51 @@ pub fn main() -> Result<(), JsValue> {
     // Start animation loop
     start_animation_loop()?;
 
-    console_log!("Personal site initialized!");
+    // Start intro animation timer
+    start_intro_timer()?;
+
+    console_log!("Pensieve initialized!");
+    Ok(())
+}
+
+fn start_intro_timer() -> Result<(), JsValue> {
+    let window = web_sys::window().ok_or("no window")?;
+
+    // After 5.5 seconds (enough time for all quotes to fade in), start fading out
+    let fade_out_closure = Closure::once(move || {
+        if let Some(window) = web_sys::window() {
+            if let Some(document) = window.document() {
+                if let Some(overlay) = document.get_element_by_id("intro-overlay") {
+                    // Add fade-out class to trigger CSS transition
+                    let _ = overlay.set_attribute("class", "fade-out");
+
+                    // After the fade-out transition (1.5s), hide the element completely
+                    let hide_closure = Closure::once(move || {
+                        if let Some(window) = web_sys::window() {
+                            if let Some(document) = window.document() {
+                                if let Some(overlay) = document.get_element_by_id("intro-overlay") {
+                                    let _ = overlay.set_attribute("class", "hidden");
+                                }
+                            }
+                        }
+                    });
+
+                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                        hide_closure.as_ref().unchecked_ref(),
+                        1500, // 1.5 seconds for fade-out transition
+                    );
+                    hide_closure.forget();
+                }
+            }
+        }
+    });
+
+    window.set_timeout_with_callback_and_timeout_and_arguments_0(
+        fade_out_closure.as_ref().unchecked_ref(),
+        5500, // 5.5 seconds to let quotes fade in
+    )?;
+    fade_out_closure.forget();
+
     Ok(())
 }
 
@@ -354,6 +456,8 @@ pub fn go_home() {
             // Reset to root level
             app.depth_context = None;
             app.depth_stack.clear();
+            app.active_tags.clear(); // Clear any active tag filters
+            app.prune_mode = false;
             app.current_node = Some("home".to_string());
             app.camera.go_home();
         }
@@ -553,6 +657,168 @@ pub fn toggle_dark_mode() {
     });
 }
 
+// Toggle a tag filter (add if not present, remove if present)
+pub fn toggle_tag(key: &str, value: &str) {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            let tag = (key.to_string(), value.to_string());
+            if let Some(pos) = app.active_tags.iter().position(|t| t == &tag) {
+                // Tag is active, remove it
+                app.active_tags.remove(pos);
+            } else {
+                // Tag not active, add it
+                app.active_tags.push(tag);
+            }
+        }
+    });
+}
+
+// Clear all active tags
+pub fn clear_tags() {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            app.active_tags.clear();
+        }
+    });
+}
+
+// Check if there are active tags
+pub fn has_active_tags() -> bool {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow().as_ref() {
+            !app.active_tags.is_empty()
+        } else {
+            false
+        }
+    })
+}
+
+// Toggle prune mode (p command) - only show nodes connected to current node via active tags
+pub fn toggle_prune_mode() {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            app.prune_mode = !app.prune_mode;
+        }
+    });
+}
+
+// Toggle help overlay (? command)
+pub fn toggle_help() {
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            if let Some(overlay) = document.get_element_by_id("help-overlay") {
+                if let Some(class_list) = overlay.get_attribute("class") {
+                    if class_list.contains("hidden") {
+                        let _ = overlay.set_attribute("class", "");
+                    } else {
+                        let _ = overlay.set_attribute("class", "hidden");
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Toggle all tags on current node (tt command)
+// If no tags active: activate all tags from the current node (depth 1 expansion)
+// If tags active: clear all tags
+pub fn toggle_all_tags() {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            if !app.active_tags.is_empty() {
+                // Tags are active, clear them
+                app.active_tags.clear();
+                app.prune_mode = false;
+            } else {
+                // No tags active, activate all tags from the current node
+                if let Some(ref node_id) = app.current_node {
+                    if let Some(node) = app.graph.nodes.get(node_id) {
+                        // Collect all tags from current node
+                        let all_tags: Vec<(String, String)> = node.tags
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        app.active_tags = all_tags;
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Cycle to next tag on current node (Tab key)
+pub fn cycle_highlighted_tag() {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            if let Some(ref node_id) = app.current_node {
+                if let Some(node) = app.graph.nodes.get(node_id) {
+                    let tag_count = node.tags.len();
+                    if tag_count == 0 {
+                        app.highlighted_tag_index = None;
+                        return;
+                    }
+
+                    app.highlighted_tag_index = match app.highlighted_tag_index {
+                        None => Some(0),
+                        Some(idx) => {
+                            let next = idx + 1;
+                            if next >= tag_count {
+                                Some(0) // Wrap around
+                            } else {
+                                Some(next)
+                            }
+                        }
+                    };
+                }
+            }
+        }
+    });
+}
+
+// Toggle the currently highlighted tag (t key)
+pub fn toggle_highlighted_tag() {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            if let Some(idx) = app.highlighted_tag_index {
+                if let Some(node_id) = app.current_node.clone() {
+                    if let Some(node) = app.graph.nodes.get(&node_id) {
+                        if let Some((key, value)) = node.tags.get(idx) {
+                            let tag = (key.clone(), value.clone());
+                            if let Some(pos) = app.active_tags.iter().position(|t| t == &tag) {
+                                // Tag is active, remove it
+                                app.active_tags.remove(pos);
+                            } else {
+                                // Tag not active, add it
+                                app.active_tags.push(tag);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Get the currently highlighted tag index (for rendering)
+pub fn get_highlighted_tag_index() -> Option<usize> {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow().as_ref() {
+            app.highlighted_tag_index
+        } else {
+            None
+        }
+    })
+}
+
+// Clear highlighted tag (when current node changes)
+pub fn clear_highlighted_tag() {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            app.highlighted_tag_index = None;
+        }
+    });
+}
+
 // Zoom in on current/highlighted node (Enter or double-click)
 // If node has children, drill into subgraph; if leaf, zoom to article
 pub fn zoom_in_current() {
@@ -741,6 +1007,25 @@ pub fn navigate_rail(direction: char) {
                 }
                 if edge.from == current_id && visible_node_ids.contains(&edge.to) && !connected.contains(&edge.to) {
                     connected.push(edge.to.clone());
+                }
+            }
+
+            // Tag-inferred connections (nodes sharing active tags with current node)
+            if !app.active_tags.is_empty() {
+                if let Some(node) = app.graph.nodes.get(&current_id) {
+                    for (key, value) in &node.tags {
+                        // Only consider tags that are currently active
+                        if app.active_tags.contains(&(key.clone(), value.clone())) {
+                            for other_id in app.graph.get_nodes_with_tag(key, value) {
+                                if other_id != current_id
+                                    && visible_node_ids.contains(&other_id)
+                                    && !connected.contains(&other_id)
+                                {
+                                    connected.push(other_id);
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

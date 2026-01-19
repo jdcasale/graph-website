@@ -76,10 +76,39 @@ impl std::ops::MulAssign<f64> for Vec2 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum NodeType {
-    Anchor,
-    Content,
+/// The kind of node - determines what content it can have
+#[derive(Debug, Clone, PartialEq)]
+pub enum NodeKind {
+    /// A collection node that contains other nodes (no article)
+    Collection,
+    /// A post/article node with full content
+    Post { article: String },
+    // Future types:
+    // Media { url: String, media_type: MediaType },
+    // Link { url: String, description: String },
+}
+
+impl NodeKind {
+    /// Returns the article content if this is a Post node
+    pub fn article(&self) -> Option<&str> {
+        match self {
+            NodeKind::Post { article } => Some(article),
+            _ => None,
+        }
+    }
+
+    /// Returns true if this node has children (is a collection)
+    pub fn is_collection(&self) -> bool {
+        matches!(self, NodeKind::Collection)
+    }
+
+    /// Returns the type name for display/tags
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            NodeKind::Collection => "collection",
+            NodeKind::Post { .. } => "post",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -88,13 +117,13 @@ pub struct Node {
     pub position: Vec2,
     pub velocity: Vec2,
     pub fixed_position: Option<Vec2>,
-    pub node_type: NodeType,
+    pub kind: NodeKind,
     pub title: String,
-    pub content: String,
-    pub article: Option<String>, // Full article text, visible when zoomed in
+    pub summary: String, // Brief description shown in graph view
     pub connections: Vec<String>,
     pub is_dragged: bool,
     pub parent: Option<String>, // Primary parent for breadcrumb (from directed edge)
+    pub tags: Vec<(String, String)>, // Key-value tags for inferring connections
 }
 
 impl Node {
@@ -102,15 +131,16 @@ impl Node {
         self.fixed_position.is_some() && !self.is_dragged
     }
 
-    pub fn is_anchor(&self) -> bool {
-        self.fixed_position.is_some()
+    /// Returns the article content if this is a Post node
+    pub fn article(&self) -> Option<&str> {
+        self.kind.article()
     }
 
     /// Estimate the bounding box of the text content.
     /// Returns (width, height) in pixels.
     /// The box is positioned to the right of the node point.
     pub fn estimate_bounds(&self) -> (f64, f64) {
-        // Estimate based on content (title + body)
+        // Estimate based on content (title + summary)
         // CSS: max-width 280px, font-size ~14px, line-height 1.5
         let char_width = 8.0; // Approximate monospace character width
         let line_height = 21.0; // 14px * 1.5
@@ -120,16 +150,16 @@ impl Node {
         // Calculate title width
         let title_width = (self.title.len() as f64 * char_width).min(max_width);
 
-        // Calculate content dimensions
-        let content_lines: Vec<&str> = self.content.lines().collect();
-        let max_line_len = content_lines.iter()
+        // Calculate summary dimensions
+        let summary_lines: Vec<&str> = self.summary.lines().collect();
+        let max_line_len = summary_lines.iter()
             .map(|line| line.len())
             .max()
             .unwrap_or(0);
-        let content_width = (max_line_len as f64 * char_width).min(max_width);
+        let summary_width = (max_line_len as f64 * char_width).min(max_width);
 
-        let width = title_width.max(content_width) + padding;
-        let height = line_height + (content_lines.len() as f64 * line_height) + padding;
+        let width = title_width.max(summary_width) + padding;
+        let height = line_height + (summary_lines.len() as f64 * line_height) + padding;
 
         (width, height)
     }
@@ -174,116 +204,46 @@ impl Graph {
         }
     }
 
-    pub fn add_anchor(
-        &mut self,
-        id: &str,
-        position: Vec2,
-        title: &str,
-        content: &str,
-    ) {
-        let node = Node {
-            id: id.to_string(),
-            position,
-            velocity: Vec2::zero(),
-            fixed_position: Some(position),
-            node_type: NodeType::Anchor,
-            title: title.to_string(),
-            content: content.to_string(),
-            article: None,
-            connections: Vec::new(),
-            is_dragged: false,
-            parent: None,
-        };
-        self.nodes.insert(id.to_string(), node);
-    }
-
-    pub fn add_content(
-        &mut self,
-        id: &str,
-        title: &str,
-        content: &str,
-        article: Option<&str>,
-        connected_to: &[&str],
-    ) {
-        // Start position near first connection (will be adjusted by layout)
-        let start_pos = if let Some(first) = connected_to.first() {
-            if let Some(anchor) = self.nodes.get(*first) {
-                Vec2::new(
-                    anchor.position.x + 150.0 + (self.nodes.len() as f64 * 20.0),
-                    anchor.position.y + 50.0,
-                )
-            } else {
-                Vec2::zero()
-            }
-        } else {
-            Vec2::zero()
-        };
-
-        let node = Node {
-            id: id.to_string(),
-            position: start_pos,
-            velocity: Vec2::zero(),
-            fixed_position: None,
-            node_type: NodeType::Content,
-            title: title.to_string(),
-            content: content.to_string(),
-            article: article.map(|s| s.to_string()),
-            connections: connected_to.iter().map(|s| s.to_string()).collect(),
-            is_dragged: false,
-            parent: None,
-        };
-        self.nodes.insert(id.to_string(), node);
-
-        // Add edges (undirected for backwards compatibility)
-        for target in connected_to {
-            self.edges.push(Edge {
-                from: id.to_string(),
-                to: target.to_string(),
-                edge_type: EdgeType::Undirected,
-                label: None,
-            });
-        }
-    }
-
     pub fn get_node(&self, id: &str) -> Option<&Node> {
         self.nodes.get(id)
     }
 
-    /// Add a root node (appears at top level, no parent)
-    pub fn add_root(
+    // ═══════════════════════════════════════════════════════════════
+    // TYPE-SAFE NODE CREATION
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Add a root-level collection (no parent, contains children)
+    pub fn add_collection(
         &mut self,
         id: &str,
         position: Vec2,
         title: &str,
-        content: &str,
-        article: Option<&str>,
+        summary: &str,
     ) {
         let node = Node {
             id: id.to_string(),
             position,
             velocity: Vec2::zero(),
             fixed_position: Some(position),
-            node_type: NodeType::Anchor,
+            kind: NodeKind::Collection,
             title: title.to_string(),
-            content: content.to_string(),
-            article: article.map(|s| s.to_string()),
+            summary: summary.to_string(),
             connections: Vec::new(),
             is_dragged: false,
             parent: None,
+            tags: Vec::new(),
         };
         self.nodes.insert(id.to_string(), node);
     }
 
-    /// Add a child node with directed edge from parent
-    pub fn add_child(
+    /// Add a child collection under a parent (contains children)
+    pub fn add_child_collection(
         &mut self,
         id: &str,
         parent_id: &str,
         title: &str,
-        content: &str,
-        article: Option<&str>,
+        summary: &str,
     ) {
-        // Start position near parent (will be adjusted by layout)
         let start_pos = if let Some(parent) = self.nodes.get(parent_id) {
             Vec2::new(
                 parent.position.x + 150.0 + (self.nodes.len() as f64 * 20.0),
@@ -298,13 +258,80 @@ impl Graph {
             position: start_pos,
             velocity: Vec2::zero(),
             fixed_position: None,
-            node_type: NodeType::Content,
+            kind: NodeKind::Collection,
             title: title.to_string(),
-            content: content.to_string(),
-            article: article.map(|s| s.to_string()),
+            summary: summary.to_string(),
             connections: vec![parent_id.to_string()],
             is_dragged: false,
             parent: Some(parent_id.to_string()),
+            tags: Vec::new(),
+        };
+        self.nodes.insert(id.to_string(), node);
+
+        // Add directed edge from parent to child
+        self.edges.push(Edge {
+            from: parent_id.to_string(),
+            to: id.to_string(),
+            edge_type: EdgeType::Directed,
+            label: None,
+        });
+    }
+
+    /// Add a root-level post (no parent, has article content)
+    pub fn add_post(
+        &mut self,
+        id: &str,
+        position: Vec2,
+        title: &str,
+        summary: &str,
+        article: &str,
+    ) {
+        let node = Node {
+            id: id.to_string(),
+            position,
+            velocity: Vec2::zero(),
+            fixed_position: Some(position),
+            kind: NodeKind::Post { article: article.to_string() },
+            title: title.to_string(),
+            summary: summary.to_string(),
+            connections: Vec::new(),
+            is_dragged: false,
+            parent: None,
+            tags: Vec::new(),
+        };
+        self.nodes.insert(id.to_string(), node);
+    }
+
+    /// Add a child post under a parent (has article content)
+    pub fn add_child_post(
+        &mut self,
+        id: &str,
+        parent_id: &str,
+        title: &str,
+        summary: &str,
+        article: &str,
+    ) {
+        let start_pos = if let Some(parent) = self.nodes.get(parent_id) {
+            Vec2::new(
+                parent.position.x + 150.0 + (self.nodes.len() as f64 * 20.0),
+                parent.position.y + 50.0,
+            )
+        } else {
+            Vec2::zero()
+        };
+
+        let node = Node {
+            id: id.to_string(),
+            position: start_pos,
+            velocity: Vec2::zero(),
+            fixed_position: None,
+            kind: NodeKind::Post { article: article.to_string() },
+            title: title.to_string(),
+            summary: summary.to_string(),
+            connections: vec![parent_id.to_string()],
+            is_dragged: false,
+            parent: Some(parent_id.to_string()),
+            tags: Vec::new(),
         };
         self.nodes.insert(id.to_string(), node);
 
@@ -390,7 +417,7 @@ impl Graph {
 
     /// Get nodes to display in a subgraph context:
     /// - The context node's children (directed edges)
-    /// - Plus any undirected associations of those children
+    /// - Plus any nodes that share tags with those children (inferred associations)
     pub fn get_subgraph_nodes(&self, context_id: &str) -> Vec<String> {
         let mut result: Vec<String> = Vec::new();
 
@@ -404,23 +431,12 @@ impl Graph {
 
         result.extend(children.clone());
 
-        // Get undirected associations of children
+        // Get nodes that share tags with children (inferred associations)
         for child_id in &children {
-            for edge in &self.edges {
-                if edge.edge_type == EdgeType::Undirected {
-                    let assoc_id = if edge.from == *child_id {
-                        Some(&edge.to)
-                    } else if edge.to == *child_id {
-                        Some(&edge.from)
-                    } else {
-                        None
-                    };
-
-                    if let Some(id) = assoc_id {
-                        if !result.contains(id) {
-                            result.push(id.clone());
-                        }
-                    }
+            let shared_tag_nodes = self.get_nodes_with_shared_tags(child_id);
+            for node_id in shared_tag_nodes {
+                if !result.contains(&node_id) {
+                    result.push(node_id);
                 }
             }
         }
@@ -434,6 +450,112 @@ impl Graph {
             .iter()
             .filter(|e| visible_node_ids.contains(&e.from) && visible_node_ids.contains(&e.to))
             .collect()
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TAG-BASED METHODS
+    // ═══════════════════════════════════════════════════════════════
+
+    /// Add a tag to a node
+    pub fn tag(&mut self, node_id: &str, key: &str, value: &str) {
+        if let Some(node) = self.nodes.get_mut(node_id) {
+            node.tags.push((key.to_string(), value.to_string()));
+        }
+    }
+
+    /// Check if two nodes share any tags (same key AND value)
+    pub fn nodes_share_tag(&self, node_a: &str, node_b: &str) -> Option<(String, String)> {
+        let a = self.nodes.get(node_a)?;
+        let b = self.nodes.get(node_b)?;
+
+        for (key_a, val_a) in &a.tags {
+            for (key_b, val_b) in &b.tags {
+                if key_a == key_b && val_a == val_b {
+                    return Some((key_a.clone(), val_a.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    /// Get all inferred edges from shared tags among visible nodes.
+    /// Returns tuples of (node_a, node_b, tag_key, tag_value) for ALL shared tags.
+    pub fn get_inferred_edges(&self, visible_node_ids: &[String]) -> Vec<(String, String, String, String)> {
+        let mut edges: Vec<(String, String, String, String)> = Vec::new();
+
+        for i in 0..visible_node_ids.len() {
+            for j in (i + 1)..visible_node_ids.len() {
+                let id_a = &visible_node_ids[i];
+                let id_b = &visible_node_ids[j];
+
+                // Get ALL shared tags between these nodes, not just the first
+                let shared_tags = self.get_all_shared_tags(id_a, id_b);
+                for (key, value) in shared_tags {
+                    edges.push((id_a.clone(), id_b.clone(), key, value));
+                }
+            }
+        }
+
+        edges
+    }
+
+    /// Get all tags shared between two nodes (not just the first one)
+    fn get_all_shared_tags(&self, node_a: &str, node_b: &str) -> Vec<(String, String)> {
+        let a = match self.nodes.get(node_a) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+        let b = match self.nodes.get(node_b) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        let mut shared: Vec<(String, String)> = Vec::new();
+        for (key_a, val_a) in &a.tags {
+            for (key_b, val_b) in &b.tags {
+                if key_a == key_b && val_a == val_b {
+                    shared.push((key_a.clone(), val_a.clone()));
+                }
+            }
+        }
+        shared
+    }
+
+    /// Get all nodes that have a specific tag (key, value)
+    pub fn get_nodes_with_tag(&self, key: &str, value: &str) -> Vec<String> {
+        self.nodes
+            .iter()
+            .filter(|(_, node)| node.tags.contains(&(key.to_string(), value.to_string())))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    /// Get nodes that share any tag with the given node
+    pub fn get_nodes_with_shared_tags(&self, node_id: &str) -> Vec<String> {
+        let node = match self.nodes.get(node_id) {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
+
+        let mut result: Vec<String> = Vec::new();
+
+        for (other_id, other_node) in &self.nodes {
+            if other_id == node_id {
+                continue;
+            }
+
+            // Check if any tags match
+            for (key, value) in &node.tags {
+                if other_node.tags.contains(&(key.clone(), value.clone())) {
+                    if !result.contains(other_id) {
+                        result.push(other_id.clone());
+                    }
+                    break;
+                }
+            }
+        }
+
+        result
     }
 }
 

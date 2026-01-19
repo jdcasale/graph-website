@@ -1,7 +1,8 @@
 [package]
-name = "personal_site"
+name = "pensieve"
 version = "0.1.0"
 edition = "2021"
+description = "I sometimes find, and I am sure you know the feeling, that I simply have too many thoughts and memories crammed into my mind... One simply siphons the excess thoughts from one's mind, pours them into the basin, and examines them at one's leisure. It becomes easier to spot patterns and links, you understand, when they are in this form."
 
 [lib]
 crate-type = ["cdylib", "rlib"]

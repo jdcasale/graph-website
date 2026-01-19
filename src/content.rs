@@ -10,36 +10,33 @@ pub fn build_graph() -> Graph {
     // ROOT LEVEL - Main categories (these appear at top level)
     // ═══════════════════════════════════════════════════════════════
 
-    graph.add_root(
+    graph.add_collection(
         "home",
         vec2(0.0, 0.0),
-        "Welcome",
-        "Navigate with h/j/k/l or arrow keys.\nClick a node to jump to it.\nPress gg to return home.\nPress b for rail mode.\nPress d for dark mode.\nPress Enter to drill into nodes.",
-        None,
+        "Pensieve",
+        "Navigate with h/j/k/l or arrow keys.\nClick a node to jump to it.\nPress Enter to explore deeper.\nPress Escape to return.\nPress gg to come home.",
     );
 
-    graph.add_root(
+    graph.add_collection(
         "projects",
         vec2(600.0, -200.0),
         "Projects",
         "Things I've built.\nEnter to explore.",
-        None,
     );
 
-    graph.add_root(
+    graph.add_collection(
         "writing",
         vec2(-500.0, 200.0),
         "Writing",
         "Essays and notes.\nEnter to explore.",
-        None,
     );
 
-    graph.add_root(
+    graph.add_post(
         "about",
         vec2(400.0, 400.0),
         "About",
         "Who I am.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: About
+        r#"# CLAUDE PLACEHOLDER ARTICLE: About
 
 I'm a developer who enjoys building tools that help people think.
 
@@ -47,22 +44,19 @@ This website is an experiment in non-linear navigation—a way to explore ideas 
 
 ## Contact
 
-Feel free to reach out if you'd like to chat about any of the projects or ideas here."#),
+Feel free to reach out if you'd like to chat about any of the projects or ideas here."#,
     );
-
-    // Undirected edges between root nodes (associations)
-    graph.add_association("projects", "writing", Some("topic: programming"));
 
     // ═══════════════════════════════════════════════════════════════
     // CHILDREN OF "projects" - Drill into "projects" to see these
     // ═══════════════════════════════════════════════════════════════
 
-    graph.add_child(
+    graph.add_child_post(
         "project-alpha",
         "projects",
         "Project Alpha",
         "A cool thing I made.\nIt does interesting stuff.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Alpha
+        r#"# CLAUDE PLACEHOLDER ARTICLE: Project Alpha
 
 This is a longer description of Project Alpha that becomes visible when you zoom in.
 
@@ -80,39 +74,38 @@ The most challenging part was getting the performance right. Early versions woul
 
 1. Profile before optimizing
 2. The browser is faster than you think
-3. But the DOM is slower than you think"#),
+3. But the DOM is slower than you think"#,
     );
 
-    graph.add_child(
+    graph.add_child_collection(
         "project-beta",
         "projects",
         "Project Beta",
         "A CLI tool with sub-features.\nEnter to explore.",
-        None, // No article - has children instead
     );
 
-    graph.add_child(
+    graph.add_child_post(
         "project-gamma",
         "projects",
         "Project Gamma",
         "Yet another thing.\nStill pretty neat.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Gamma
+        r#"# CLAUDE PLACEHOLDER ARTICLE: Project Gamma
 
 A cross-platform utility for automating repetitive tasks.
 
-Built with simplicity in mind—no configuration files, just command-line flags and sensible defaults."#),
+Built with simplicity in mind—no configuration files, just command-line flags and sensible defaults."#,
     );
 
     // ═══════════════════════════════════════════════════════════════
     // CHILDREN OF "project-beta" - Drill into "project-beta" to see these
     // ═══════════════════════════════════════════════════════════════
 
-    graph.add_child(
+    graph.add_child_post(
         "beta-search",
         "project-beta",
         "Search",
         "Full-text search feature.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Search
+        r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Search
 
 The search feature uses a custom inverted index for fast full-text search across all your notes.
 
@@ -123,15 +116,15 @@ The search feature uses a custom inverted index for fast full-text search across
 3. Queries are parsed and matched against the index
 4. Results are ranked by relevance
 
-The index is persistent and updates incrementally as you add or modify notes."#),
+The index is persistent and updates incrementally as you add or modify notes."#,
     );
 
-    graph.add_child(
+    graph.add_child_post(
         "beta-graph",
         "project-beta",
         "Graph View",
         "Visualize connections.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Graph View
+        r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Graph View
 
 The graph view shows how your notes connect to each other.
 
@@ -140,15 +133,15 @@ Connections are detected automatically based on:
 - Shared tags and keywords
 - Semantic similarity (using embeddings)
 
-This visualization was the inspiration for this website's design."#),
+This visualization was the inspiration for this website's design."#,
     );
 
-    graph.add_child(
+    graph.add_child_post(
         "beta-export",
         "project-beta",
         "Export",
         "Export to various formats.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Export
+        r#"# CLAUDE PLACEHOLDER ARTICLE: Project Beta: Export
 
 Export your knowledge base to different formats:
 
@@ -157,19 +150,19 @@ Export your knowledge base to different formats:
 - **JSON**: For programmatic access
 - **PDF**: For printing or sharing
 
-All exports preserve links and structure."#),
+All exports preserve links and structure."#,
     );
 
     // ═══════════════════════════════════════════════════════════════
     // CHILDREN OF "writing" - Drill into "writing" to see these
     // ═══════════════════════════════════════════════════════════════
 
-    graph.add_child(
+    graph.add_child_post(
         "essay-minimalism",
         "writing",
         "On Minimalism",
         "Less is more, usually.\nSometimes less is just less.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: On Minimalism
+        r#"# CLAUDE PLACEHOLDER ARTICLE: On Minimalism
 
 There's a certain kind of simplicity that's actually complexity in disguise. A "minimal" interface that hides essential controls. A "clean" API that forces you to write boilerplate elsewhere.
 
@@ -185,15 +178,15 @@ This principle guided the design of this website:
 - No search box because you explore by moving through space
 - The interface is the content
 
-Of course, this approach has tradeoffs. Discoverability suffers. New visitors might feel lost. But for the kind of slow, exploratory reading I want to encourage, getting a little lost is part of the point."#),
+Of course, this approach has tradeoffs. Discoverability suffers. New visitors might feel lost. But for the kind of slow, exploratory reading I want to encourage, getting a little lost is part of the point."#,
     );
 
-    graph.add_child(
+    graph.add_child_post(
         "essay-tools",
         "writing",
         "Tools for Thought",
         "The tools we use shape how we think.\nChoose wisely.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Tools for Thought
+        r#"# CLAUDE PLACEHOLDER ARTICLE: Tools for Thought
 
 > "We shape our tools and thereafter our tools shape us."
 > — Marshall McLuhan
@@ -212,15 +205,15 @@ I've been thinking about what a tool for thought optimized for exploration would
 - Not linear like a document
 - Something more like a garden—or a map
 
-This website is an experiment in that direction."#),
+This website is an experiment in that direction."#,
     );
 
-    graph.add_child(
+    graph.add_child_post(
         "note-rust",
         "writing",
         "Notes on Rust",
         "The borrow checker is your friend.\nEventually.",
-        Some(r#"# CLAUDE PLACEHOLDER ARTICLE: Notes on Rust
+        r#"# CLAUDE PLACEHOLDER ARTICLE: Notes on Rust
 
 Learning Rust felt like learning to program all over again.
 
@@ -248,34 +241,60 @@ The complexity of the borrow checker is roughly $O(n \cdot m)$ where $n$ is the 
 
 Rust didn't teach me how to write Rust. It taught me how to think about memory, concurrency, and program structure in a deeper way.
 
-*This website is written in Rust, compiled to WebAssembly.*"#),
+*This website is written in Rust, compiled to WebAssembly.*"#,
     );
 
     // ═══════════════════════════════════════════════════════════════
-    // UNDIRECTED ASSOCIATIONS - Cross-hierarchy connections
+    // TAGS - Nodes with shared tags are automatically connected
+    // Creates a dense web of cross-hierarchy connections
     // ═══════════════════════════════════════════════════════════════
 
-    // project-alpha is associated with note-rust (both about Rust/programming)
-    graph.add_association("project-alpha", "note-rust", Some("language: rust"));
+    // Note: The "type" tag is now implicit in the node kind (Collection vs Post)
+    // and can be accessed via node.kind.type_name()
 
-    // beta-graph is associated with essay-tools (both about visualization/tools)
-    graph.add_association("beta-graph", "essay-tools", Some("topic: visualization"));
+    // Author tag - connects all content by the same author
+    graph.tag("project-alpha", "author", "jdcasale");
+    graph.tag("project-beta", "author", "jdcasale");
+    graph.tag("project-gamma", "author", "jdcasale");
+    graph.tag("beta-search", "author", "jdcasale");
+    graph.tag("beta-graph", "author", "jdcasale");
+    graph.tag("beta-export", "author", "jdcasale");
+    graph.tag("essay-minimalism", "author", "jdcasale");
+    graph.tag("essay-tools", "author", "jdcasale");
+    graph.tag("note-rust", "author", "jdcasale");
+    graph.tag("about", "author", "jdcasale");
 
-    // project-gamma connects writing and projects
-    graph.add_association("project-gamma", "essay-minimalism", Some("topic: simplicity"));
+    // Language/technology tags
+    graph.tag("project-alpha", "language", "rust");
+    graph.tag("project-alpha", "tech", "webgl");
+    graph.tag("project-alpha", "tech", "wasm");
+    graph.tag("note-rust", "language", "rust");
+    graph.tag("beta-search", "tech", "indexing");
+    graph.tag("beta-graph", "tech", "visualization");
+    graph.tag("beta-export", "tech", "markdown");
 
-    // About (author) is connected to all content
-    graph.add_association("about", "projects", Some("author"));
-    graph.add_association("about", "writing", Some("author"));
-    graph.add_association("about", "project-alpha", Some("author"));
-    graph.add_association("about", "project-beta", Some("author"));
-    graph.add_association("about", "project-gamma", Some("author"));
-    graph.add_association("about", "beta-search", Some("author"));
-    graph.add_association("about", "beta-graph", Some("author"));
-    graph.add_association("about", "beta-export", Some("author"));
-    graph.add_association("about", "essay-minimalism", Some("author"));
-    graph.add_association("about", "essay-tools", Some("author"));
-    graph.add_association("about", "note-rust", Some("author"));
+    // Topic tags - thematic connections
+    graph.tag("beta-graph", "topic", "visualization");
+    graph.tag("essay-tools", "topic", "visualization");
+    graph.tag("project-alpha", "topic", "visualization");
+
+    graph.tag("project-gamma", "topic", "simplicity");
+    graph.tag("essay-minimalism", "topic", "simplicity");
+    graph.tag("beta-export", "topic", "simplicity");
+
+    graph.tag("essay-tools", "topic", "philosophy");
+    graph.tag("essay-minimalism", "topic", "philosophy");
+    graph.tag("note-rust", "topic", "philosophy");
+
+    graph.tag("beta-search", "topic", "knowledge-management");
+    graph.tag("beta-graph", "topic", "knowledge-management");
+    graph.tag("beta-export", "topic", "knowledge-management");
+    graph.tag("essay-tools", "topic", "knowledge-management");
+
+    // Meta tags - about the creative process
+    graph.tag("project-alpha", "meta", "lessons-learned");
+    graph.tag("note-rust", "meta", "lessons-learned");
+    graph.tag("essay-minimalism", "meta", "lessons-learned");
 
     // ═══════════════════════════════════════════════════════════════
     // RUN INITIAL LAYOUT

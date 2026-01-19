@@ -1,5 +1,5 @@
 use crate::graph::Vec2;
-use crate::{apply_camera_velocity, end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, navigate_rail, set_camera_zoom, toggle_dark_mode, toggle_rail_mode, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
+use crate::{apply_camera_velocity, console_log, log, cycle_highlighted_tag, end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, navigate_rail, set_camera_zoom, toggle_all_tags, toggle_dark_mode, toggle_help, toggle_highlighted_tag, toggle_prune_mode, toggle_rail_mode, toggle_tag, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -20,6 +20,7 @@ pub struct InputState {
     pub scroll_delta: Vec2,
     last_mouse: Vec2,
     last_g_time: f64,
+    last_t_time: f64,
     last_click_time: f64,
     last_click_pos: Vec2,
     // Touch state
@@ -49,6 +50,7 @@ impl InputState {
             scroll_delta: Vec2::zero(),
             last_mouse: Vec2::zero(),
             last_g_time: 0.0,
+            last_t_time: 0.0,
             last_click_time: 0.0,
             last_click_pos: Vec2::zero(),
             // Touch state
@@ -81,7 +83,7 @@ pub fn setup_listeners() -> Result<(), JsValue> {
         let shift = event.shift_key();
 
         // Prevent default for our navigation keys
-        if matches!(key.as_str(), "h" | "j" | "k" | "l" | "g" | "b" | "d" | "Enter" | "Escape" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown") {
+        if matches!(key.as_str(), "h" | "j" | "k" | "l" | "g" | "b" | "d" | "t" | "p" | "?" | "Tab" | "Enter" | "Escape" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown") {
             event.prevent_default();
         }
 
@@ -128,6 +130,41 @@ pub fn setup_listeners() -> Result<(), JsValue> {
         // Handle d (toggle dark mode)
         if key == "d" {
             toggle_dark_mode();
+            return;
+        }
+
+        // Handle Tab (cycle through tags on current node)
+        if key == "Tab" {
+            cycle_highlighted_tag();
+            return;
+        }
+
+        // Handle t (single = toggle highlighted tag, double tt = toggle all tags)
+        if key == "t" {
+            let should_toggle_all = with_input_result(|input| {
+                let now = js_sys::Date::now();
+                let result = now - input.last_t_time < 500.0;
+                input.last_t_time = now;
+                result
+            });
+            if should_toggle_all {
+                toggle_all_tags();
+            } else {
+                // Single t - toggle the highlighted tag
+                toggle_highlighted_tag();
+            }
+            return;
+        }
+
+        // Handle p (toggle prune mode - only show nodes connected to current via active tags)
+        if key == "p" {
+            toggle_prune_mode();
+            return;
+        }
+
+        // Handle ? (toggle help overlay)
+        if key == "?" {
+            toggle_help();
             return;
         }
 
@@ -249,6 +286,32 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     // Mouse up - release node or handle click/double-click
     let mouseup_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::MouseEvent| {
+        // Check if click was on a tag chip - if so, handle it and return
+        if let Some(target) = event.target() {
+            if let Ok(element) = target.dyn_into::<web_sys::HtmlElement>() {
+                let class_name = element.class_name();
+                if class_name.contains("tag-chip") {
+                    // Handle tag chip click
+                    if let (Some(key), Some(value)) = (
+                        element.get_attribute("data-tag-key"),
+                        element.get_attribute("data-tag-value"),
+                    ) {
+                        console_log!("mouseup on tag-chip: {}:{}", key, value);
+                        toggle_tag(&key, &value);
+                    } else {
+                        console_log!("tag-chip missing data attributes, class={}", class_name);
+                    }
+                    with_input(|input| {
+                        input.is_dragging = false;
+                        input.is_dragging_node = false;
+                        input.drag_delta = Vec2::zero();
+                        input.drag_velocity = Vec2::zero();
+                    });
+                    return;
+                }
+            }
+        }
+
         let x = event.client_x() as f64;
         let y = event.client_y() as f64;
         let now = js_sys::Date::now();
@@ -318,6 +381,37 @@ pub fn setup_listeners() -> Result<(), JsValue> {
     wheel_closure.forget();
 
     // ═══════════════════════════════════════════════════════════════
+    // TAG CHIP CLICK HANDLER
+    // ═══════════════════════════════════════════════════════════════
+
+    // Click handler for tag chips (uses event delegation)
+    let tag_click_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::MouseEvent| {
+        // Check if the click target is a tag chip
+        if let Some(target) = event.target() {
+            if let Ok(element) = target.dyn_into::<web_sys::HtmlElement>() {
+                // Check if element has "tag-chip" class
+                let class_name = element.class_name();
+                console_log!("click on element with class: {}", class_name);
+                if class_name.contains("tag-chip") {
+                    // Get tag key and value from data attributes
+                    let key = element.get_attribute("data-tag-key");
+                    let value = element.get_attribute("data-tag-value");
+                    console_log!("tag-chip clicked: key={:?}, value={:?}", key, value);
+                    if let (Some(key), Some(value)) = (key, value) {
+                        event.prevent_default();
+                        event.stop_propagation();
+                        console_log!("toggling tag: {}:{}", key, value);
+                        toggle_tag(&key, &value);
+                    }
+                }
+            }
+        }
+    });
+
+    document.add_event_listener_with_callback("click", tag_click_closure.as_ref().unchecked_ref())?;
+    tag_click_closure.forget();
+
+    // ═══════════════════════════════════════════════════════════════
     // TOUCH HANDLERS (on document, like mouse handlers)
     // ═══════════════════════════════════════════════════════════════
 
@@ -329,6 +423,8 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
         let touches = event.touches();
         let touch_count = touches.length();
+
+        console_log!("touchstart: {} fingers", touch_count);
 
         if touch_count == 1 {
             // Single touch - start drag
@@ -437,8 +533,12 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                             let scale_factor = new_dist / old_dist;
                             let current_zoom = get_camera_zoom();
                             let new_zoom = current_zoom * scale_factor;
+                            console_log!("pinch: old={:.1} new={:.1} scale={:.2} zoom={:.2}",
+                                old_dist, new_dist, scale_factor, new_zoom);
                             set_camera_zoom(new_zoom);
                         }
+                    } else {
+                        console_log!("pinch: initializing distance={:.1}", new_dist);
                     }
                     // Always update pinch_distance (initializes on first 2-finger move)
                     input.pinch_distance = Some(new_dist);
@@ -463,6 +563,8 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
         let changed_touches = event.changed_touches();
         let remaining_touches = event.touches().length();
+
+        console_log!("touchend: {} remaining", remaining_touches);
 
         if remaining_touches == 0 {
             // All fingers lifted
@@ -493,8 +595,12 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                     result
                 });
 
+                console_log!("touchend: was_node={}, was_single={}, total_drag={:.1}",
+                    was_dragging_node, was_single_touch, total_drag);
+
                 if was_dragging_node {
                     // Release the node with velocity
+                    console_log!("releasing node with velocity");
                     end_node_drag(drag_velocity.x * 60.0, drag_velocity.y * 60.0);
                 } else if was_single_touch && total_drag < 15.0 {
                     // This was a tap (not a drag)
@@ -505,6 +611,9 @@ pub fn setup_listeners() -> Result<(), JsValue> {
                         // Double-tap if within 400ms and 30px of last tap
                         let is_dbl = time_diff < 400.0 && pos_diff < 30.0;
 
+                        console_log!("tap check: time_diff={:.0}, pos_diff={:.1}, is_dbl={}",
+                            time_diff, pos_diff, is_dbl);
+
                         input.last_tap_time = now;
                         input.last_tap_pos = pos;
 
@@ -513,9 +622,11 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
                     if is_double_tap && !is_zoomed_in() {
                         // Double-tap - navigate into node
+                        console_log!("DOUBLE TAP - calling handle_node_double_click");
                         handle_node_double_click(x, y);
                     } else if !is_double_tap {
                         // Single tap - select node
+                        console_log!("SINGLE TAP - calling handle_node_click");
                         handle_node_click(x, y);
                     }
                 } else if was_single_touch {

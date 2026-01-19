@@ -1,14 +1,15 @@
 {
-  "name": "personal_site",
+  "name": "pensieve",
   "type": "module",
+  "description": "I sometimes find, and I am sure you know the feeling, that I simply have too many thoughts and memories crammed into my mind... One simply siphons the excess thoughts from one's mind, pours them into the basin, and examines them at one's leisure. It becomes easier to spot patterns and links, you understand, when they are in this form.",
   "version": "0.1.0",
   "files": [
-    "personal_site_bg.wasm",
-    "personal_site.js",
-    "personal_site.d.ts"
+    "pensieve_bg.wasm",
+    "pensieve.js",
+    "pensieve.d.ts"
   ],
-  "main": "personal_site.js",
-  "types": "personal_site.d.ts",
+  "main": "pensieve.js",
+  "types": "pensieve.d.ts",
   "sideEffects": [
     "./snippets/*"
   ]

@@ -1,5 +1,5 @@
 use crate::camera::Camera;
-use crate::graph::{EdgeType, Graph, NodeType, Vec2};
+use crate::graph::{EdgeType, Graph, NodeKind, Vec2};
 use pulldown_cmark::{html, Parser};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -114,6 +114,8 @@ impl Renderer {
         visible_node_ids: &[String],
         transition_opacity: f64,
         dark_mode: bool,
+        active_tags: &[(String, String)],
+        highlighted_tag_index: Option<usize>,
     ) -> Result<(), JsValue> {
         // Update canvas size if window resized
         self.update_size()?;
@@ -162,10 +164,15 @@ impl Renderer {
 
         // Draw graph elements with opacity (skip if fully transparent)
         if graph_opacity > 0.01 {
-            // Draw only edges between visible nodes
+            // Draw only directed edges between visible nodes
             let visible_edges = graph.get_visible_edges(visible_node_ids);
 
             for edge in visible_edges {
+                // Only draw directed edges here (hierarchy)
+                if edge.edge_type != EdgeType::Directed {
+                    continue;
+                }
+
                 if let (Some(from), Some(to)) = (graph.get_node(&edge.from), graph.get_node(&edge.to)) {
                     let from_screen = Vec2::new(from.position.x * zoom + offset_x, from.position.y * zoom + offset_y);
                     let to_screen = Vec2::new(to.position.x * zoom + offset_x, to.position.y * zoom + offset_y);
@@ -175,51 +182,94 @@ impl Renderer {
                         continue;
                     }
 
-                    // Different styles for directed vs undirected edges
-                    match edge.edge_type {
-                        EdgeType::Directed => {
-                            // Solid line for hierarchy
-                            let edge_color = if dark_mode {
-                                format!("rgba(180, 180, 180, {})", graph_opacity)
-                            } else {
-                                format!("rgba(102, 102, 102, {})", graph_opacity)
-                            };
-                            self.ctx.set_stroke_style_str(&edge_color);
-                            self.ctx.set_line_width(zoom.max(1.0) * 1.5);
-                            self.ctx.set_line_dash(&js_sys::Array::new())?; // Solid line
+                    // Solid line for hierarchy
+                    let edge_color = if dark_mode {
+                        format!("rgba(180, 180, 180, {})", graph_opacity)
+                    } else {
+                        format!("rgba(102, 102, 102, {})", graph_opacity)
+                    };
+                    self.ctx.set_stroke_style_str(&edge_color);
+                    self.ctx.set_line_width(zoom.max(1.0) * 1.5);
+                    self.ctx.set_line_dash(&js_sys::Array::new())?; // Solid line
 
-                            self.ctx.begin_path();
-                            self.ctx.move_to(from_screen.x, from_screen.y);
-                            self.ctx.line_to(to_screen.x, to_screen.y);
-                            self.ctx.stroke();
+                    self.ctx.begin_path();
+                    self.ctx.move_to(from_screen.x, from_screen.y);
+                    self.ctx.line_to(to_screen.x, to_screen.y);
+                    self.ctx.stroke();
 
-                            // Draw arrow at the end
-                            self.draw_arrow(from_screen, to_screen, zoom, graph_opacity, dark_mode)?;
+                    // Draw arrow at the end
+                    self.draw_arrow(from_screen, to_screen, zoom, graph_opacity, dark_mode)?;
+                }
+            }
+
+            // Draw inferred edges from shared tags (only when tags are active)
+            if !active_tags.is_empty() {
+                let inferred_edges = graph.get_inferred_edges(visible_node_ids);
+
+                // Color palette for different tags
+                let tag_colors: Vec<(&str, &str)> = vec![
+                    ("rgba(59, 130, 246, {})", "rgba(96, 165, 250, {})"),   // Blue
+                    ("rgba(16, 185, 129, {})", "rgba(52, 211, 153, {})"),   // Green
+                    ("rgba(245, 158, 11, {})", "rgba(251, 191, 36, {})"),   // Amber
+                    ("rgba(139, 92, 246, {})", "rgba(167, 139, 250, {})"),  // Purple
+                ];
+
+                for (from_id, to_id, key, value) in inferred_edges {
+                    // Only draw if this tag is active
+                    let tag_index = active_tags.iter().position(|(k, v)| k == &key && v == &value);
+                    if tag_index.is_none() {
+                        continue;
+                    }
+                    let tag_idx = tag_index.unwrap() % tag_colors.len();
+
+                    if let (Some(from), Some(to)) = (graph.get_node(&from_id), graph.get_node(&to_id)) {
+                        let from_screen = Vec2::new(from.position.x * zoom + offset_x, from.position.y * zoom + offset_y);
+                        let to_screen = Vec2::new(to.position.x * zoom + offset_x, to.position.y * zoom + offset_y);
+
+                        // Cull if both ends are way off screen
+                        if !self.is_line_visible(from_screen, to_screen) {
+                            continue;
                         }
-                        EdgeType::Undirected => {
-                            // Dashed line for associations
-                            let edge_color = if dark_mode {
-                                format!("rgba(120, 120, 120, {})", graph_opacity)
-                            } else {
-                                format!("rgba(180, 180, 180, {})", graph_opacity)
-                            };
-                            self.ctx.set_stroke_style_str(&edge_color);
-                            self.ctx.set_line_width(zoom.max(1.0));
 
-                            // Set dashed pattern
-                            let dash_array = js_sys::Array::new();
-                            dash_array.push(&JsValue::from_f64(5.0 * zoom));
-                            dash_array.push(&JsValue::from_f64(5.0 * zoom));
-                            self.ctx.set_line_dash(&dash_array)?;
+                        // Colored line for tag-inferred associations
+                        let (light_color, dark_color) = tag_colors[tag_idx];
+                        let edge_color = if dark_mode {
+                            dark_color.replace("{}", &format!("{}", graph_opacity * 0.8))
+                        } else {
+                            light_color.replace("{}", &format!("{}", graph_opacity * 0.8))
+                        };
+                        self.ctx.set_stroke_style_str(&edge_color);
+                        self.ctx.set_line_width(2.0 * zoom.max(1.0));
 
-                            self.ctx.begin_path();
-                            self.ctx.move_to(from_screen.x, from_screen.y);
-                            self.ctx.line_to(to_screen.x, to_screen.y);
-                            self.ctx.stroke();
-
-                            // Reset dash pattern
-                            self.ctx.set_line_dash(&js_sys::Array::new())?;
+                        // Different dash patterns for different tags
+                        let dash_array = js_sys::Array::new();
+                        match tag_idx {
+                            0 => { // Solid
+                            }
+                            1 => { // Dashed
+                                dash_array.push(&JsValue::from_f64(8.0 * zoom));
+                                dash_array.push(&JsValue::from_f64(4.0 * zoom));
+                            }
+                            2 => { // Dotted
+                                dash_array.push(&JsValue::from_f64(2.0 * zoom));
+                                dash_array.push(&JsValue::from_f64(4.0 * zoom));
+                            }
+                            _ => { // Dash-dot
+                                dash_array.push(&JsValue::from_f64(8.0 * zoom));
+                                dash_array.push(&JsValue::from_f64(4.0 * zoom));
+                                dash_array.push(&JsValue::from_f64(2.0 * zoom));
+                                dash_array.push(&JsValue::from_f64(4.0 * zoom));
+                            }
                         }
+                        self.ctx.set_line_dash(&dash_array)?;
+
+                        self.ctx.begin_path();
+                        self.ctx.move_to(from_screen.x, from_screen.y);
+                        self.ctx.line_to(to_screen.x, to_screen.y);
+                        self.ctx.stroke();
+
+                        // Reset dash pattern
+                        self.ctx.set_line_dash(&js_sys::Array::new())?;
                     }
                 }
             }
@@ -292,13 +342,13 @@ impl Renderer {
                 };
 
                 // Draw node circle with opacity (inverted for dark mode)
-                let color = match node.node_type {
-                    NodeType::Anchor => if dark_mode {
+                let color = match &node.kind {
+                    NodeKind::Collection => if dark_mode {
                         format!("rgba(220, 220, 220, {})", graph_opacity)
                     } else {
                         format!("rgba(51, 51, 51, {})", graph_opacity)
                     },
-                    NodeType::Content => if dark_mode {
+                    NodeKind::Post { .. } => if dark_mode {
                         format!("rgba(180, 180, 180, {})", graph_opacity)
                     } else {
                         format!("rgba(102, 102, 102, {})", graph_opacity)
@@ -335,8 +385,11 @@ impl Renderer {
                 }
             }
 
+            // Calculate tooltip offset direction (away from connected nodes)
+            let tooltip_offset = self.calculate_tooltip_offset(graph, &node.id, visible_node_ids);
+
             // Update or create content element
-            self.update_content_element(node, screen_pos, is_current, reading_mode, graph_opacity)?;
+            self.update_content_element(node, screen_pos, is_current, reading_mode, graph_opacity, active_tags, tooltip_offset, highlighted_tag_index)?;
         }
 
         // Hide content elements for non-visible nodes
@@ -473,6 +526,81 @@ impl Renderer {
             && min_y < self.height + CONTENT_MARGIN
     }
 
+    /// Calculate the direction to offset a tooltip away from connected nodes
+    fn calculate_tooltip_offset(&self, graph: &Graph, node_id: &str, visible_node_ids: &[String]) -> Vec2 {
+        let node = match graph.get_node(node_id) {
+            Some(n) => n,
+            None => return Vec2::new(1.0, 0.0), // Default to right
+        };
+
+        // Collect all connected node positions
+        let mut connected_positions: Vec<Vec2> = Vec::new();
+
+        // Get edges involving this node
+        for edge in &graph.edges {
+            let connected_id = if edge.from == node_id {
+                &edge.to
+            } else if edge.to == node_id {
+                &edge.from
+            } else {
+                continue;
+            };
+
+            // Only consider visible nodes
+            if !visible_node_ids.contains(connected_id) {
+                continue;
+            }
+
+            if let Some(connected_node) = graph.get_node(connected_id) {
+                connected_positions.push(connected_node.position);
+            }
+        }
+
+        // Also consider tag-inferred connections
+        for (key, value) in &node.tags {
+            for other_id in graph.get_nodes_with_tag(key, value) {
+                if other_id == node_id || !visible_node_ids.contains(&other_id) {
+                    continue;
+                }
+                if let Some(other_node) = graph.get_node(&other_id) {
+                    // Avoid duplicates
+                    let already_added = connected_positions.iter().any(|p| {
+                        (p.x - other_node.position.x).abs() < 0.1 && (p.y - other_node.position.y).abs() < 0.1
+                    });
+                    if !already_added {
+                        connected_positions.push(other_node.position);
+                    }
+                }
+            }
+        }
+
+        // If no connections, default to right
+        if connected_positions.is_empty() {
+            return Vec2::new(1.0, 0.0);
+        }
+
+        // Calculate average direction FROM connected nodes TO this node
+        let mut avg_direction = Vec2::zero();
+        for pos in &connected_positions {
+            let dx = node.position.x - pos.x;
+            let dy = node.position.y - pos.y;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len > 0.1 {
+                avg_direction.x += dx / len;
+                avg_direction.y += dy / len;
+            }
+        }
+
+        // Normalize the result
+        let len = (avg_direction.x * avg_direction.x + avg_direction.y * avg_direction.y).sqrt();
+        if len > 0.1 {
+            Vec2::new(avg_direction.x / len, avg_direction.y / len)
+        } else {
+            // If directions cancel out (node is surrounded), default to right
+            Vec2::new(1.0, 0.0)
+        }
+    }
+
     fn update_content_element(
         &mut self,
         node: &crate::graph::Node,
@@ -480,6 +608,9 @@ impl Renderer {
         is_current: bool,
         reading_mode: bool,
         graph_opacity: f64,
+        active_tags: &[(String, String)],
+        tooltip_offset: Vec2, // Direction to offset tooltip (away from connected nodes)
+        highlighted_tag_index: Option<usize>, // Currently highlighted tag (Tab cycling)
     ) -> Result<(), JsValue> {
         let el = if let Some(el) = self.content_elements.get(&node.id) {
             el.clone()
@@ -504,8 +635,8 @@ impl Renderer {
         let style = el.style();
 
         // In reading mode, show full markdown article centered on screen
-        if reading_mode && is_current && node.article.is_some() {
-            let article = node.article.as_ref().unwrap();
+        if reading_mode && is_current && node.article().is_some() {
+            let article = node.article().unwrap();
 
             // Parse markdown to HTML
             let parser = Parser::new(article);
@@ -533,15 +664,49 @@ impl Renderer {
         }
 
         // Determine what content to show based on zoom level
-        let title_class = match node.node_type {
-            NodeType::Anchor => "node-title anchor-title",
-            NodeType::Content => "node-title",
+        let title_class = match &node.kind {
+            NodeKind::Collection => "node-title anchor-title",
+            NodeKind::Post { .. } => "node-title",
         };
 
-        // Normal mode - show title and summary
+        // Build tag chips HTML for highlighted node
+        let tags_html = if is_current && !node.tags.is_empty() {
+            // Color classes for different tags
+            let tag_colors = ["tag-blue", "tag-green", "tag-amber", "tag-purple"];
+
+            let chips: Vec<String> = node.tags.iter().enumerate().map(|(idx, (key, value))| {
+                // Check if this tag is active
+                let is_active = active_tags.iter().any(|(k, v)| k == key && v == value);
+                let active_class = if is_active { " tag-active" } else { "" };
+
+                // Check if this tag is highlighted (Tab cycling)
+                let is_highlighted = highlighted_tag_index == Some(idx);
+                let highlighted_class = if is_highlighted { " tag-highlighted" } else { "" };
+
+                // Find color index if active
+                let color_idx = if is_active {
+                    active_tags.iter().position(|(k, v)| k == key && v == value).unwrap_or(0) % tag_colors.len()
+                } else {
+                    0
+                };
+                let color_class = if is_active { tag_colors[color_idx] } else { "" };
+
+                format!(
+                    "<span class=\"tag-chip{}{}{}\" data-tag-key=\"{}\" data-tag-value=\"{}\">{}: {}</span>",
+                    active_class, highlighted_class, if is_active { format!(" {}", color_class) } else { String::new() },
+                    key, value, key, value
+                )
+            }).collect();
+
+            format!("<div class=\"tag-chips\">{}</div>", chips.join(""))
+        } else {
+            String::new()
+        };
+
+        // Normal mode - show title, summary, and tags
         el.set_inner_html(&format!(
-            "<div class=\"{}\">{}</div><div class=\"node-body\">{}</div>",
-            title_class, node.title, node.content
+            "<div class=\"{}\">{}</div><div class=\"node-body\">{}</div>{}",
+            title_class, node.title, node.summary, tags_html
         ));
 
         // Update class based on current state
@@ -552,13 +717,35 @@ impl Renderer {
         };
         el.set_class_name(class_name);
 
-        // Update position - positioned relative to node
+        // Update position - positioned relative to node, offset away from connected nodes
         style.set_property("display", "block")?;
         style.set_property("position", "absolute")?;
-        style.set_property("left", &format!("{}px", screen_pos.x + 15.0))?;
-        style.set_property("top", &format!("{}px", screen_pos.y - 10.0))?;
-        style.set_property("transform", "none")?;
-        style.set_property("transform-origin", "top left")?;
+
+        // Calculate position and transform based on offset direction
+        let offset_distance = 20.0; // Base distance from node
+        let offset_x = tooltip_offset.x * offset_distance;
+        let offset_y = tooltip_offset.y * offset_distance;
+
+        // Determine which side of the node the tooltip should be on
+        // and adjust transform-origin accordingly
+        let (transform, transform_origin) = if tooltip_offset.x < -0.3 {
+            // Tooltip goes to the left
+            ("translate(-100%, -50%)", "right center")
+        } else if tooltip_offset.x > 0.3 {
+            // Tooltip goes to the right
+            ("translate(0%, -50%)", "left center")
+        } else if tooltip_offset.y < 0.0 {
+            // Tooltip goes above
+            ("translate(-50%, -100%)", "center bottom")
+        } else {
+            // Tooltip goes below
+            ("translate(-50%, 0%)", "center top")
+        };
+
+        style.set_property("left", &format!("{}px", screen_pos.x + offset_x))?;
+        style.set_property("top", &format!("{}px", screen_pos.y + offset_y))?;
+        style.set_property("transform", transform)?;
+        style.set_property("transform-origin", transform_origin)?;
 
         // Apply opacity to non-current nodes during zoom transition
         if is_current {

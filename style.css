@@ -206,6 +206,121 @@ body:active {
     text-decoration: none;
 }
 
+/* Tag chips on highlighted nodes */
+.tag-chips {
+    margin-top: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.tag-chip {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 11px;
+    border-radius: 12px;
+    background: #e5e5e5;
+    color: #555555;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+}
+
+.tag-chip:hover {
+    background: #d4d4d4;
+    color: #333333;
+}
+
+.tag-chip.tag-active {
+    font-weight: 600;
+}
+
+/* Highlighted tag (Tab cycling) */
+.tag-chip.tag-highlighted {
+    outline: 2px solid #000000;
+    outline-offset: 1px;
+}
+
+body.dark-mode .tag-chip.tag-highlighted {
+    outline-color: #ffffff;
+}
+
+/* Tag color variants */
+.tag-chip.tag-blue {
+    background: rgba(59, 130, 246, 0.2);
+    color: #2563eb;
+    border-color: rgba(59, 130, 246, 0.4);
+}
+
+.tag-chip.tag-blue:hover {
+    background: rgba(59, 130, 246, 0.3);
+}
+
+.tag-chip.tag-green {
+    background: rgba(16, 185, 129, 0.2);
+    color: #059669;
+    border-color: rgba(16, 185, 129, 0.4);
+}
+
+.tag-chip.tag-green:hover {
+    background: rgba(16, 185, 129, 0.3);
+}
+
+.tag-chip.tag-amber {
+    background: rgba(245, 158, 11, 0.2);
+    color: #d97706;
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.tag-chip.tag-amber:hover {
+    background: rgba(245, 158, 11, 0.3);
+}
+
+.tag-chip.tag-purple {
+    background: rgba(139, 92, 246, 0.2);
+    color: #7c3aed;
+    border-color: rgba(139, 92, 246, 0.4);
+}
+
+.tag-chip.tag-purple:hover {
+    background: rgba(139, 92, 246, 0.3);
+}
+
+/* Dark mode tag chips */
+body.dark-mode .tag-chip {
+    background: #333333;
+    color: #aaaaaa;
+}
+
+body.dark-mode .tag-chip:hover {
+    background: #444444;
+    color: #cccccc;
+}
+
+body.dark-mode .tag-chip.tag-blue {
+    background: rgba(96, 165, 250, 0.2);
+    color: #93c5fd;
+    border-color: rgba(96, 165, 250, 0.4);
+}
+
+body.dark-mode .tag-chip.tag-green {
+    background: rgba(52, 211, 153, 0.2);
+    color: #6ee7b7;
+    border-color: rgba(52, 211, 153, 0.4);
+}
+
+body.dark-mode .tag-chip.tag-amber {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fcd34d;
+    border-color: rgba(251, 191, 36, 0.4);
+}
+
+body.dark-mode .tag-chip.tag-purple {
+    background: rgba(167, 139, 250, 0.2);
+    color: #c4b5fd;
+    border-color: rgba(167, 139, 250, 0.4);
+}
+
 /* Breadcrumb navigation */
 .breadcrumb {
     position: fixed;
@@ -341,4 +456,171 @@ body.dark-mode .rail-indicator {
 
 body.dark-mode .rail-hint {
     color: #666666;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INTRO ANIMATION - Pensieve quote fade-in/fade-out
+   ═══════════════════════════════════════════════════════════════ */
+
+#intro-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 1.5s ease-out;
+}
+
+#intro-overlay.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+
+#intro-overlay.hidden {
+    display: none;
+}
+
+.intro-content {
+    max-width: 600px;
+    padding: 40px;
+    text-align: center;
+}
+
+.intro-quote {
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+    font-size: 16px;
+    line-height: 1.8;
+    color: #333333;
+    font-style: italic;
+    margin-bottom: 24px;
+    opacity: 0;
+    animation: fadeInQuote 2s ease-out forwards;
+}
+
+.intro-quote-delayed {
+    animation-delay: 1.5s;
+}
+
+.intro-quote-delayed-2 {
+    animation-delay: 3s;
+}
+
+@keyframes fadeInQuote {
+    0% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Dark mode intro */
+body.dark-mode #intro-overlay {
+    background: #111111;
+}
+
+body.dark-mode .intro-quote {
+    color: #cccccc;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HELP OVERLAY
+   ═══════════════════════════════════════════════════════════════ */
+
+#help-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.95);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 0.2s ease-out;
+}
+
+#help-overlay.hidden {
+    display: none;
+}
+
+.help-content {
+    max-width: 400px;
+    padding: 32px;
+    font-family: ui-monospace, 'SF Mono', 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
+}
+
+.help-content h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 24px;
+    color: #000000;
+}
+
+.help-content h3 {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888888;
+    margin-bottom: 8px;
+}
+
+.help-section {
+    margin-bottom: 20px;
+}
+
+.help-row {
+    font-size: 14px;
+    color: #333333;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.key {
+    display: inline-block;
+    background: #f0f0f0;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: #333;
+    min-width: 20px;
+    text-align: center;
+}
+
+/* Dark mode help */
+body.dark-mode #help-overlay {
+    background: rgba(17, 17, 17, 0.95);
+}
+
+body.dark-mode .help-content h2 {
+    color: #ffffff;
+}
+
+body.dark-mode .help-content h3 {
+    color: #777777;
+}
+
+body.dark-mode .help-row {
+    color: #cccccc;
+}
+
+body.dark-mode .key {
+    background: #333333;
+    border-color: #555555;
+    color: #dddddd;
 }
