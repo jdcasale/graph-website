@@ -122,6 +122,21 @@ impl Camera {
         self.velocity = Vec2::zero();
     }
 
+    /// Push velocity toward a target - feels like "skating" rather than teleporting
+    pub fn skate_toward(&mut self, target: Vec2) {
+        let diff = target - self.position;
+        let dist = diff.length();
+        if dist < 1.0 {
+            return;
+        }
+        // Set velocity in the direction of the target
+        // Speed scales with distance but caps well below MAX_VELOCITY for a leisurely glide
+        let speed = (dist * 1.5).min(600.0);
+        self.velocity = diff.normalized() * speed;
+        // Clear any hard target so physics takes over
+        self.target = None;
+    }
+
     pub fn go_home(&mut self) {
         self.glide_to(Vec2::zero());
         self.zoom_to(1.0);

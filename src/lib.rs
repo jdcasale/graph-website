@@ -44,6 +44,11 @@ struct App {
     active_tags: Vec<(String, String)>, // Active tag filters - each shows connections in different style
     prune_mode: bool, // When true, only show nodes connected to current node via active tags
     highlighted_tag_index: Option<usize>, // Currently highlighted tag on current node (for Tab cycling)
+    // Rail navigation state
+    last_rail_dir: Option<char>,      // Last direction key pressed
+    last_rail_time: f64,              // When it was pressed (ms timestamp)
+    rail_cycle_index: usize,          // Which candidate we're cycling through
+    last_move_dir: graph::Vec2,       // Direction of last move (for hysteresis)
 }
 
 impl App {
@@ -70,6 +75,11 @@ impl App {
             active_tags: Vec::new(),                 // No tags selected
             prune_mode: false,                       // Show all nodes with active tags
             highlighted_tag_index: None,             // No tag highlighted
+            // Rail navigation state
+            last_rail_dir: None,
+            last_rail_time: 0.0,
+            rail_cycle_index: 0,
+            last_move_dir: graph::Vec2::zero(),
         })
     }
 
@@ -400,6 +410,53 @@ fn start_intro_timer() -> Result<(), JsValue> {
     Ok(())
 }
 
+/// Check if the intro overlay is currently visible
+#[wasm_bindgen]
+pub fn is_intro_visible() -> bool {
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            if let Some(overlay) = document.get_element_by_id("intro-overlay") {
+                let class = overlay.get_attribute("class").unwrap_or_default();
+                // Visible if not hidden and not fading out
+                return !class.contains("hidden") && !class.contains("fade-out");
+            }
+        }
+    }
+    false
+}
+
+/// Dismiss the intro overlay immediately (tap to skip)
+#[wasm_bindgen]
+pub fn dismiss_intro() {
+    if let Some(window) = web_sys::window() {
+        if let Some(document) = window.document() {
+            if let Some(overlay) = document.get_element_by_id("intro-overlay") {
+                let class = overlay.get_attribute("class").unwrap_or_default();
+                if !class.contains("hidden") && !class.contains("fade-out") {
+                    let _ = overlay.set_attribute("class", "fade-out");
+
+                    // Hide after transition
+                    let hide_closure = Closure::once(move || {
+                        if let Some(window) = web_sys::window() {
+                            if let Some(document) = window.document() {
+                                if let Some(overlay) = document.get_element_by_id("intro-overlay") {
+                                    let _ = overlay.set_attribute("class", "hidden");
+                                }
+                            }
+                        }
+                    });
+
+                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                        hide_closure.as_ref().unchecked_ref(),
+                        1500,
+                    );
+                    hide_closure.forget();
+                }
+            }
+        }
+    }
+}
+
 fn start_animation_loop() -> Result<(), JsValue> {
     let f: Rc<RefCell<Option<Closure<dyn FnMut(f64)>>>> = Rc::new(RefCell::new(None));
     let g = f.clone();
@@ -465,6 +522,8 @@ pub fn go_home() {
 }
 
 // Called from input module to handle node clicks (when not dragging a node)
+// In free roam mode: just select the node (no camera movement)
+// In rail mode: skate toward the node
 pub fn handle_node_click(x: f64, y: f64) {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
@@ -484,8 +543,11 @@ pub fn handle_node_click(x: f64, y: f64) {
                     let dist = (dx * dx + dy * dy).sqrt();
 
                     if dist < 20.0 {
-                        // Click radius
-                        app.camera.glide_to(node.position);
+                        // In rail mode: skate toward the clicked node
+                        // In free roam: just select it, no camera movement
+                        if app.rail_mode {
+                            app.camera.skate_toward(node.position);
+                        }
                         app.current_node = Some(node_id.clone());
                         break;
                     }
@@ -624,7 +686,7 @@ pub fn toggle_rail_mode() -> bool {
 
                 if let Some((id, _)) = nearest {
                     if let Some(node) = app.graph.nodes.get(&id) {
-                        app.camera.glide_to(node.position);
+                        app.camera.skate_toward(node.position);
                         app.current_node = Some(id);
                     }
                 }
@@ -968,6 +1030,9 @@ pub fn move_current_node(direction: char) {
 
 // Navigate to a connected node in the given direction
 // direction: 'h' (left), 'l' (right), 'k' (up), 'j' (down)
+// Features:
+// - Repeated presses of same key within 400ms cycle through candidates
+// - Hysteresis: slight bonus for continuing in similar direction
 pub fn navigate_rail(direction: char) {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
@@ -1029,8 +1094,9 @@ pub fn navigate_rail(direction: char) {
                 }
             }
 
-            // Find the best node in the given direction
-            let mut best: Option<(String, f64)> = None;
+            // Collect all candidates in the given direction with their scores
+            let mut candidates: Vec<(String, f64)> = Vec::new();
+            const HYSTERESIS_BONUS: f64 = 0.15;
 
             for conn_id in connected {
                 let conn_node = match app.graph.nodes.get(&conn_id) {
@@ -1040,39 +1106,118 @@ pub fn navigate_rail(direction: char) {
 
                 let dx = conn_node.position.x - current_pos.x;
                 let dy = conn_node.position.y - current_pos.y;
-
-                // Check if this node is in the right direction
-                let is_valid_direction = match direction {
-                    'h' => dx < -20.0,  // Left
-                    'l' => dx > 20.0,   // Right
-                    'k' => dy < -20.0,  // Up
-                    'j' => dy > 20.0,   // Down
-                    _ => false,
-                };
-
-                if !is_valid_direction {
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist < 1.0 {
                     continue;
                 }
 
-                // Score by how well it matches the direction (prefer more aligned nodes)
-                let dist = (dx * dx + dy * dy).sqrt();
-                let score = match direction {
-                    'h' | 'l' => (dx.abs() / dist) / dist, // Prefer horizontal, closer
-                    'k' | 'j' => (dy.abs() / dist) / dist, // Prefer vertical, closer
-                    _ => 0.0,
+                // Direction vector to this candidate
+                let dir_to_candidate = graph::Vec2::new(dx / dist, dy / dist);
+
+                // Check if this node is in the right direction (cone-based, not strict cardinal)
+                // Use a wider cone (~120 degrees) - dot product > 0.5 means within 60 degrees
+                let cardinal_dir = match direction {
+                    'h' => graph::Vec2::new(-1.0, 0.0),
+                    'l' => graph::Vec2::new(1.0, 0.0),
+                    'k' => graph::Vec2::new(0.0, -1.0),
+                    'j' => graph::Vec2::new(0.0, 1.0),
+                    _ => continue,
                 };
 
-                if best.is_none() || score > best.as_ref().unwrap().1 {
-                    best = Some((conn_id, score));
+                let alignment = dir_to_candidate.x * cardinal_dir.x + dir_to_candidate.y * cardinal_dir.y;
+                if alignment < 0.3 {
+                    // Not in the right general direction
+                    continue;
                 }
+
+                // Base score: alignment / distance (prefer aligned and close)
+                let base_score = alignment / dist;
+
+                // Hysteresis bonus: reward continuing in a similar direction
+                let last_dir_len = (app.last_move_dir.x * app.last_move_dir.x + app.last_move_dir.y * app.last_move_dir.y).sqrt();
+                let continue_bonus = if last_dir_len > 0.1 {
+                    let cont = (dir_to_candidate.x * app.last_move_dir.x + dir_to_candidate.y * app.last_move_dir.y).max(0.0);
+                    HYSTERESIS_BONUS * cont * cont
+                } else {
+                    0.0
+                };
+
+                let score = base_score + continue_bonus;
+                candidates.push((conn_id, score));
             }
 
-            // Navigate to the best node
-            if let Some((target_id, _)) = best {
-                if let Some(target_node) = app.graph.nodes.get(&target_id) {
-                    app.camera.glide_to(target_node.position);
-                    app.current_node = Some(target_id);
+            // Sort by score descending
+            candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Fallback: if no connected candidates, allow navigating to ANY visible node
+            // This prevents getting stuck in isolated subgraphs
+            if candidates.is_empty() {
+                let cardinal_dir = match direction {
+                    'h' => graph::Vec2::new(-1.0, 0.0),
+                    'l' => graph::Vec2::new(1.0, 0.0),
+                    'k' => graph::Vec2::new(0.0, -1.0),
+                    'j' => graph::Vec2::new(0.0, 1.0),
+                    _ => return,
+                };
+
+                for node_id in &visible_node_ids {
+                    if node_id == &current_id {
+                        continue;
+                    }
+                    if let Some(node) = app.graph.nodes.get(node_id) {
+                        let dx = node.position.x - current_pos.x;
+                        let dy = node.position.y - current_pos.y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < 1.0 {
+                            continue;
+                        }
+                        let dir = graph::Vec2::new(dx / dist, dy / dist);
+                        let alignment = dir.x * cardinal_dir.x + dir.y * cardinal_dir.y;
+                        if alignment > 0.3 {
+                            // Score by alignment / distance, with a penalty for being unconnected
+                            let score = (alignment / dist) * 0.5;
+                            candidates.push((node_id.clone(), score));
+                        }
+                    }
                 }
+                candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            }
+
+            if candidates.is_empty() {
+                return;
+            }
+
+            // Check if we should cycle through candidates
+            let now = app.last_time;
+            let same_direction = app.last_rail_dir == Some(direction);
+            let within_window = (now - app.last_rail_time) < 400.0;
+
+            let cycle_index = if same_direction && within_window {
+                // Cycle to next candidate
+                (app.rail_cycle_index + 1) % candidates.len()
+            } else {
+                // New direction or timeout - start fresh
+                0
+            };
+
+            // Update rail state
+            app.last_rail_dir = Some(direction);
+            app.last_rail_time = now;
+            app.rail_cycle_index = cycle_index;
+
+            // Navigate to the selected candidate
+            let (target_id, _) = &candidates[cycle_index];
+            if let Some(target_node) = app.graph.nodes.get(target_id) {
+                // Update last_move_dir for hysteresis
+                let dx = target_node.position.x - current_pos.x;
+                let dy = target_node.position.y - current_pos.y;
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist > 1.0 {
+                    app.last_move_dir = graph::Vec2::new(dx / dist, dy / dist);
+                }
+
+                app.camera.skate_toward(target_node.position);
+                app.current_node = Some(target_id.clone());
             }
         }
     });

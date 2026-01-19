@@ -1,5 +1,5 @@
 use crate::graph::Vec2;
-use crate::{apply_camera_velocity, console_log, log, cycle_highlighted_tag, end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, navigate_rail, set_camera_zoom, toggle_all_tags, toggle_dark_mode, toggle_help, toggle_highlighted_tag, toggle_prune_mode, toggle_rail_mode, toggle_tag, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
+use crate::{apply_camera_velocity, console_log, log, cycle_highlighted_tag, dismiss_intro, end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_intro_visible, is_rail_mode, is_zoomed_in, navigate_rail, set_camera_zoom, toggle_all_tags, toggle_dark_mode, toggle_help, toggle_highlighted_tag, toggle_prune_mode, toggle_rail_mode, toggle_tag, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -417,7 +417,14 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     // Touch start - begin drag or pinch
     let touchstart_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
-        // Prevent default early to stop browser gestures
+        // If intro is visible, dismiss it on tap and don't process further
+        if is_intro_visible() {
+            dismiss_intro();
+            // Don't prevent default during intro - let the browser handle it normally
+            return;
+        }
+
+        // Prevent default to stop browser gestures (only after intro is dismissed)
         event.prevent_default();
         event.stop_propagation();
 
@@ -479,7 +486,12 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     // Touch move - drag or pinch
     let touchmove_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
-        // Prevent default early
+        // Skip during intro
+        if is_intro_visible() {
+            return;
+        }
+
+        // Prevent default to stop browser gestures
         event.prevent_default();
         event.stop_propagation();
 
@@ -558,6 +570,11 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     // Touch end - handle tap/double-tap or release drag
     let touchend_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
+        // Skip during intro
+        if is_intro_visible() {
+            return;
+        }
+
         event.prevent_default();
         event.stop_propagation();
 
