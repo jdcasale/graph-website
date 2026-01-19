@@ -206,21 +206,13 @@ impl Renderer {
             if !active_tags.is_empty() {
                 let inferred_edges = graph.get_inferred_edges(visible_node_ids);
 
-                // Color palette for different tags
-                let tag_colors: Vec<(&str, &str)> = vec![
-                    ("rgba(59, 130, 246, {})", "rgba(96, 165, 250, {})"),   // Blue
-                    ("rgba(16, 185, 129, {})", "rgba(52, 211, 153, {})"),   // Green
-                    ("rgba(245, 158, 11, {})", "rgba(251, 191, 36, {})"),   // Amber
-                    ("rgba(139, 92, 246, {})", "rgba(167, 139, 250, {})"),  // Purple
-                ];
-
                 for (from_id, to_id, key, value) in inferred_edges {
                     // Only draw if this tag is active
                     let tag_index = active_tags.iter().position(|(k, v)| k == &key && v == &value);
                     if tag_index.is_none() {
                         continue;
                     }
-                    let tag_idx = tag_index.unwrap() % tag_colors.len();
+                    let tag_idx = tag_index.unwrap() % 4;
 
                     if let (Some(from), Some(to)) = (graph.get_node(&from_id), graph.get_node(&to_id)) {
                         let from_screen = Vec2::new(from.position.x * zoom + offset_x, from.position.y * zoom + offset_y);
@@ -231,12 +223,11 @@ impl Renderer {
                             continue;
                         }
 
-                        // Colored line for tag-inferred associations
-                        let (light_color, dark_color) = tag_colors[tag_idx];
+                        // Monochrome line for tag-inferred associations
                         let edge_color = if dark_mode {
-                            dark_color.replace("{}", &format!("{}", graph_opacity * 0.8))
+                            format!("rgba(160, 160, 160, {})", graph_opacity * 0.7)
                         } else {
-                            light_color.replace("{}", &format!("{}", graph_opacity * 0.8))
+                            format!("rgba(80, 80, 80, {})", graph_opacity * 0.7)
                         };
                         self.ctx.set_stroke_style_str(&edge_color);
                         self.ctx.set_line_width(2.0 * zoom.max(1.0));

@@ -1,7 +1,7 @@
 use crate::graph::{Graph, Vec2};
 
 // Physics tuning constants
-const REPULSION_STRENGTH: f64 = 400000.0;   // Repulsion between all nodes (higher = more spread)
+const REPULSION_STRENGTH: f64 = 4000000.0;   // Repulsion between all nodes (higher = more spread)
 const ATTRACTION_STRENGTH: f64 = 0.005;     // Spring attraction along edges (lower = looser connections)
 const IDEAL_EDGE_LENGTH: f64 = 280.0;       // Target distance for connected nodes
 const ANCHOR_ATTRACTION: f64 = 0.012;       // Pull anchors back to their home position
