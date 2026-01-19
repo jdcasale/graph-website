@@ -44,11 +44,9 @@ struct App {
     active_tags: Vec<(String, String)>, // Active tag filters - each shows connections in different style
     prune_mode: bool, // When true, only show nodes connected to current node via active tags
     highlighted_tag_index: Option<usize>, // Currently highlighted tag on current node (for Tab cycling)
-    // Rail navigation state
-    last_rail_dir: Option<char>,      // Last direction key pressed
-    last_rail_time: f64,              // When it was pressed (ms timestamp)
-    rail_cycle_index: usize,          // Which candidate we're cycling through
-    last_move_dir: graph::Vec2,       // Direction of last move (for hysteresis)
+    // Rail navigation state (steer-then-drive model)
+    rail_edges: Vec<(String, f64)>,       // Cached (neighbor_id, angle) sorted by angle
+    rail_selected_index: Option<usize>,   // Currently selected edge (None = no selection)
 }
 
 impl App {
@@ -75,11 +73,9 @@ impl App {
             active_tags: Vec::new(),                 // No tags selected
             prune_mode: false,                       // Show all nodes with active tags
             highlighted_tag_index: None,             // No tag highlighted
-            // Rail navigation state
-            last_rail_dir: None,
-            last_rail_time: 0.0,
-            rail_cycle_index: 0,
-            last_move_dir: graph::Vec2::zero(),
+            // Rail navigation state (steer-then-drive)
+            rail_edges: Vec::new(),
+            rail_selected_index: None,
         })
     }
 
@@ -217,6 +213,15 @@ impl App {
             closest_node
         };
 
+        // Get rail selection for highlighting (computed inline to avoid double borrow)
+        let rail_selection = if self.rail_mode {
+            self.rail_selected_index
+                .and_then(|idx| self.rail_edges.get(idx))
+                .map(|(id, _)| id.clone())
+        } else {
+            None
+        };
+
         // Render with depth context, transition opacity, and active tags
         self.renderer
             .render(
@@ -230,6 +235,7 @@ impl App {
                 self.dark_mode,
                 &self.active_tags,
                 self.highlighted_tag_index,
+                &rail_selection,
             )
             .unwrap_or_else(|e| console_log!("Render error: {:?}", e));
     }
@@ -549,6 +555,8 @@ pub fn handle_node_click(x: f64, y: f64) {
                             app.camera.skate_toward(node.position);
                         }
                         app.current_node = Some(node_id.clone());
+                        // Reset highlighted tag since new node may have different tags
+                        app.highlighted_tag_index = None;
                         break;
                     }
                 }
@@ -660,9 +668,9 @@ pub fn end_node_drag(velocity_x: f64, velocity_y: f64) {
     });
 }
 
-// Toggle rail mode (bb command)
+// Toggle rail mode (b command)
 pub fn toggle_rail_mode() -> bool {
-    APP.with(|cell| {
+    let entered_rail = APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
             app.rail_mode = !app.rail_mode;
 
@@ -690,12 +698,25 @@ pub fn toggle_rail_mode() -> bool {
                         app.current_node = Some(id);
                     }
                 }
+                true
+            } else {
+                // Exiting rail mode - clear selection
+                app.rail_edges.clear();
+                app.rail_selected_index = None;
+                false
             }
-
-            app.rail_mode
         } else {
             false
         }
+    });
+
+    // Update edges after releasing the borrow
+    if entered_rail {
+        update_rail_edges();
+    }
+
+    APP.with(|cell| {
+        cell.borrow().as_ref().map(|app| app.rail_mode).unwrap_or(false)
     })
 }
 
@@ -1028,17 +1049,19 @@ pub fn move_current_node(direction: char) {
     });
 }
 
-// Navigate to a connected node in the given direction
-// direction: 'h' (left), 'l' (right), 'k' (up), 'j' (down)
-// Features:
-// - Repeated presses of same key within 400ms cycle through candidates
-// - Hysteresis: slight bonus for continuing in similar direction
-pub fn navigate_rail(direction: char) {
+// ═══════════════════════════════════════════════════════════════
+// RAIL MODE: Steer-then-drive navigation
+// n/p: cycle through edges clockwise/counter-clockwise
+// hjkl: quick aim to edge closest to that direction
+// Space: drive to selected edge
+// ═══════════════════════════════════════════════════════════════
+
+/// Update the cached list of edges from current node, sorted by angle
+pub fn update_rail_edges() {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            if !app.rail_mode {
-                return;
-            }
+            app.rail_edges.clear();
+            app.rail_selected_index = None;
 
             let current_id = match &app.current_node {
                 Some(id) => id.clone(),
@@ -1050,13 +1073,13 @@ pub fn navigate_rail(direction: char) {
                 None => return,
             };
 
-            // Get visible nodes - we can only navigate to these
+            // Get visible nodes
             let visible_node_ids = app.get_visible_node_ids();
 
-            // Find all connected nodes that are VISIBLE
+            // Collect all connected nodes
             let mut connected: Vec<String> = Vec::new();
 
-            // Direct connections from current node (filtered to visible)
+            // Direct connections
             if let Some(node) = app.graph.nodes.get(&current_id) {
                 for conn in &node.connections {
                     if visible_node_ids.contains(conn) && !connected.contains(conn) {
@@ -1065,7 +1088,7 @@ pub fn navigate_rail(direction: char) {
                 }
             }
 
-            // Reverse connections (edges pointing to current node, filtered to visible)
+            // Reverse connections
             for edge in &app.graph.edges {
                 if edge.to == current_id && visible_node_ids.contains(&edge.from) && !connected.contains(&edge.from) {
                     connected.push(edge.from.clone());
@@ -1075,11 +1098,10 @@ pub fn navigate_rail(direction: char) {
                 }
             }
 
-            // Tag-inferred connections (nodes sharing active tags with current node)
+            // Tag-inferred connections
             if !app.active_tags.is_empty() {
                 if let Some(node) = app.graph.nodes.get(&current_id) {
                     for (key, value) in &node.tags {
-                        // Only consider tags that are currently active
                         if app.active_tags.contains(&(key.clone(), value.clone())) {
                             for other_id in app.graph.get_nodes_with_tag(key, value) {
                                 if other_id != current_id
@@ -1094,131 +1116,153 @@ pub fn navigate_rail(direction: char) {
                 }
             }
 
-            // Collect all candidates in the given direction with their scores
-            let mut candidates: Vec<(String, f64)> = Vec::new();
-            const HYSTERESIS_BONUS: f64 = 0.15;
-
+            // Calculate angle for each connected node and store
             for conn_id in connected {
-                let conn_node = match app.graph.nodes.get(&conn_id) {
-                    Some(n) => n,
-                    None => continue,
-                };
+                if let Some(conn_node) = app.graph.nodes.get(&conn_id) {
+                    let dx = conn_node.position.x - current_pos.x;
+                    let dy = conn_node.position.y - current_pos.y;
+                    let angle = dy.atan2(dx); // atan2(y, x) gives angle from positive x-axis
+                    app.rail_edges.push((conn_id, angle));
+                }
+            }
 
-                let dx = conn_node.position.x - current_pos.x;
-                let dy = conn_node.position.y - current_pos.y;
-                let dist = (dx * dx + dy * dy).sqrt();
-                if dist < 1.0 {
-                    continue;
+            // Sort by angle (ascending = counter-clockwise from east)
+            app.rail_edges.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Auto-select first edge if there's only one
+            if app.rail_edges.len() == 1 {
+                app.rail_selected_index = Some(0);
+            }
+        }
+    });
+}
+
+/// Cycle through edges clockwise (n) or counter-clockwise (p)
+pub fn cycle_rail_edge(clockwise: bool) {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            if !app.rail_mode || app.rail_edges.is_empty() {
+                return;
+            }
+
+            let len = app.rail_edges.len();
+            app.rail_selected_index = Some(match app.rail_selected_index {
+                Some(idx) => {
+                    if clockwise {
+                        (idx + 1) % len
+                    } else {
+                        (idx + len - 1) % len
+                    }
+                }
+                None => 0,
+            });
+        }
+    });
+}
+
+/// Aim at the edge closest to a cardinal direction (hjkl)
+/// h=west, l=east, k=north, j=south
+/// Applies navigational gravity: biases toward nodes matching more active tags
+pub fn aim_rail_edge(direction: char) {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            if !app.rail_mode || app.rail_edges.is_empty() {
+                return;
+            }
+
+            // Target angle for each direction
+            let target_angle = match direction {
+                'l' => 0.0,                      // East
+                'j' => std::f64::consts::FRAC_PI_2,  // South (positive y is down)
+                'h' => std::f64::consts::PI,     // West
+                'k' => -std::f64::consts::FRAC_PI_2, // North
+                _ => return,
+            };
+
+            // Find the edge with angle closest to target
+            // Use tag match score as a tie-breaker (navigational gravity)
+            let mut best_idx = 0;
+            let mut best_score = f64::MAX;
+
+            for (idx, (node_id, angle)) in app.rail_edges.iter().enumerate() {
+                // Angular difference (handle wraparound)
+                let mut angle_diff = (angle - target_angle).abs();
+                if angle_diff > std::f64::consts::PI {
+                    angle_diff = 2.0 * std::f64::consts::PI - angle_diff;
                 }
 
-                // Direction vector to this candidate
-                let dir_to_candidate = graph::Vec2::new(dx / dist, dy / dist);
-
-                // Check if this node is in the right direction (cone-based, not strict cardinal)
-                // Use a wider cone (~120 degrees) - dot product > 0.5 means within 60 degrees
-                let cardinal_dir = match direction {
-                    'h' => graph::Vec2::new(-1.0, 0.0),
-                    'l' => graph::Vec2::new(1.0, 0.0),
-                    'k' => graph::Vec2::new(0.0, -1.0),
-                    'j' => graph::Vec2::new(0.0, 1.0),
-                    _ => continue,
-                };
-
-                let alignment = dir_to_candidate.x * cardinal_dir.x + dir_to_candidate.y * cardinal_dir.y;
-                if alignment < 0.3 {
-                    // Not in the right general direction
-                    continue;
-                }
-
-                // Base score: alignment / distance (prefer aligned and close)
-                let base_score = alignment / dist;
-
-                // Hysteresis bonus: reward continuing in a similar direction
-                let last_dir_len = (app.last_move_dir.x * app.last_move_dir.x + app.last_move_dir.y * app.last_move_dir.y).sqrt();
-                let continue_bonus = if last_dir_len > 0.1 {
-                    let cont = (dir_to_candidate.x * app.last_move_dir.x + dir_to_candidate.y * app.last_move_dir.y).max(0.0);
-                    HYSTERESIS_BONUS * cont * cont
+                // Tag match bonus: better matches reduce the effective angle difference
+                // This biases selection toward nodes matching more active tags
+                let (matches, total) = app.graph.tag_match_score(node_id, &app.active_tags);
+                let tag_bonus = if total > 0 && matches > 0 {
+                    // Reduce angle by up to 0.3 radians (~17 degrees) for full match
+                    0.3 * (matches as f64 / total as f64)
                 } else {
                     0.0
                 };
 
-                let score = base_score + continue_bonus;
-                candidates.push((conn_id, score));
-            }
-
-            // Sort by score descending
-            candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-
-            // Fallback: if no connected candidates, allow navigating to ANY visible node
-            // This prevents getting stuck in isolated subgraphs
-            if candidates.is_empty() {
-                let cardinal_dir = match direction {
-                    'h' => graph::Vec2::new(-1.0, 0.0),
-                    'l' => graph::Vec2::new(1.0, 0.0),
-                    'k' => graph::Vec2::new(0.0, -1.0),
-                    'j' => graph::Vec2::new(0.0, 1.0),
-                    _ => return,
-                };
-
-                for node_id in &visible_node_ids {
-                    if node_id == &current_id {
-                        continue;
-                    }
-                    if let Some(node) = app.graph.nodes.get(node_id) {
-                        let dx = node.position.x - current_pos.x;
-                        let dy = node.position.y - current_pos.y;
-                        let dist = (dx * dx + dy * dy).sqrt();
-                        if dist < 1.0 {
-                            continue;
-                        }
-                        let dir = graph::Vec2::new(dx / dist, dy / dist);
-                        let alignment = dir.x * cardinal_dir.x + dir.y * cardinal_dir.y;
-                        if alignment > 0.3 {
-                            // Score by alignment / distance, with a penalty for being unconnected
-                            let score = (alignment / dist) * 0.5;
-                            candidates.push((node_id.clone(), score));
-                        }
-                    }
+                let score = angle_diff - tag_bonus;
+                if score < best_score {
+                    best_score = score;
+                    best_idx = idx;
                 }
-                candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             }
 
-            if candidates.is_empty() {
+            app.rail_selected_index = Some(best_idx);
+        }
+    });
+}
+
+/// Drive to the currently selected edge (Space)
+pub fn drive_rail() {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            if !app.rail_mode {
                 return;
             }
 
-            // Check if we should cycle through candidates
-            let now = app.last_time;
-            let same_direction = app.last_rail_dir == Some(direction);
-            let within_window = (now - app.last_rail_time) < 400.0;
+            // If only one edge and none selected, auto-select it
+            if app.rail_selected_index.is_none() && app.rail_edges.len() == 1 {
+                app.rail_selected_index = Some(0);
+            }
 
-            let cycle_index = if same_direction && within_window {
-                // Cycle to next candidate
-                (app.rail_cycle_index + 1) % candidates.len()
-            } else {
-                // New direction or timeout - start fresh
-                0
+            // Get selected edge
+            let target_id = match app.rail_selected_index {
+                Some(idx) if idx < app.rail_edges.len() => app.rail_edges[idx].0.clone(),
+                _ => return, // No selection, do nothing (could add shake feedback)
             };
 
-            // Update rail state
-            app.last_rail_dir = Some(direction);
-            app.last_rail_time = now;
-            app.rail_cycle_index = cycle_index;
-
-            // Navigate to the selected candidate
-            let (target_id, _) = &candidates[cycle_index];
-            if let Some(target_node) = app.graph.nodes.get(target_id) {
-                // Update last_move_dir for hysteresis
-                let dx = target_node.position.x - current_pos.x;
-                let dy = target_node.position.y - current_pos.y;
-                let dist = (dx * dx + dy * dy).sqrt();
-                if dist > 1.0 {
-                    app.last_move_dir = graph::Vec2::new(dx / dist, dy / dist);
-                }
-
+            // Get target position and move
+            if let Some(target_node) = app.graph.nodes.get(&target_id) {
                 app.camera.skate_toward(target_node.position);
-                app.current_node = Some(target_id.clone());
+                app.current_node = Some(target_id);
+                // Clear selection and update edges for new position
+                app.rail_selected_index = None;
+                // Reset highlighted tag since new node may have different tags
+                app.highlighted_tag_index = None;
             }
         }
     });
+
+    // Update edges for the new current node
+    update_rail_edges();
+}
+
+/// Get the currently selected rail destination (for rendering preview)
+pub fn get_rail_selection() -> Option<String> {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow().as_ref() {
+            if !app.rail_mode {
+                return None;
+            }
+            if let Some(idx) = app.rail_selected_index {
+                if idx < app.rail_edges.len() {
+                    return Some(app.rail_edges[idx].0.clone());
+                }
+            }
+            None
+        } else {
+            None
+        }
+    })
 }

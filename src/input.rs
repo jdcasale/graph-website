@@ -1,5 +1,5 @@
 use crate::graph::Vec2;
-use crate::{apply_camera_velocity, console_log, log, cycle_highlighted_tag, dismiss_intro, end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_intro_visible, is_rail_mode, is_zoomed_in, navigate_rail, set_camera_zoom, toggle_all_tags, toggle_dark_mode, toggle_help, toggle_highlighted_tag, toggle_prune_mode, toggle_rail_mode, toggle_tag, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
+use crate::{aim_rail_edge, apply_camera_velocity, console_log, log, cycle_highlighted_tag, cycle_rail_edge, drive_rail, end_node_drag, get_camera_zoom, go_home, handle_node_click, handle_node_double_click, is_rail_mode, is_zoomed_in, set_camera_zoom, toggle_all_tags, toggle_dark_mode, toggle_help, toggle_highlighted_tag, toggle_prune_mode, toggle_rail_mode, toggle_tag, try_start_node_drag, update_node_drag, with_input, with_input_result, zoom_in_current, zoom_out};
 use std::collections::HashSet;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -83,7 +83,7 @@ pub fn setup_listeners() -> Result<(), JsValue> {
         let shift = event.shift_key();
 
         // Prevent default for our navigation keys
-        if matches!(key.as_str(), "h" | "j" | "k" | "l" | "g" | "b" | "d" | "t" | "p" | "?" | "Tab" | "Enter" | "Escape" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown") {
+        if matches!(key.as_str(), "h" | "j" | "k" | "l" | "g" | "b" | "d" | "t" | "p" | "n" | "m" | " " | "?" | "Tab" | "Enter" | "Escape" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown") {
             event.prevent_default();
         }
 
@@ -162,6 +162,25 @@ pub fn setup_listeners() -> Result<(), JsValue> {
             return;
         }
 
+        // Rail mode navigation: n/m to cycle edges, Space to drive
+        if is_rail_mode() {
+            // n = cycle clockwise
+            if key == "n" {
+                cycle_rail_edge(true);
+                return;
+            }
+            // m = cycle counter-clockwise
+            if key == "m" {
+                cycle_rail_edge(false);
+                return;
+            }
+            // Space = commit movement to selected edge
+            if key == " " {
+                drive_rail();
+                return;
+            }
+        }
+
         // Handle ? (toggle help overlay)
         if key == "?" {
             toggle_help();
@@ -178,13 +197,13 @@ pub fn setup_listeners() -> Result<(), JsValue> {
             return;
         }
 
-        // In rail mode, hjkl navigate between connected nodes
+        // In rail mode, hjkl aim at edge in that direction (then Space to drive)
         if rail_mode && matches!(key.as_str(), "h" | "j" | "k" | "l") {
             match key.as_str() {
-                "h" => navigate_rail('h'),
-                "j" => navigate_rail('j'),
-                "k" => navigate_rail('k'),
-                "l" => navigate_rail('l'),
+                "h" => aim_rail_edge('h'),
+                "j" => aim_rail_edge('j'),
+                "k" => aim_rail_edge('k'),
+                "l" => aim_rail_edge('l'),
                 _ => {}
             }
             return;
@@ -417,14 +436,6 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     // Touch start - begin drag or pinch
     let touchstart_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
-        // If intro is visible, dismiss it on tap and don't process further
-        if is_intro_visible() {
-            dismiss_intro();
-            // Don't prevent default during intro - let the browser handle it normally
-            return;
-        }
-
-        // Prevent default to stop browser gestures (only after intro is dismissed)
         event.prevent_default();
         event.stop_propagation();
 
@@ -486,12 +497,6 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     // Touch move - drag or pinch
     let touchmove_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
-        // Skip during intro
-        if is_intro_visible() {
-            return;
-        }
-
-        // Prevent default to stop browser gestures
         event.prevent_default();
         event.stop_propagation();
 
@@ -570,11 +575,6 @@ pub fn setup_listeners() -> Result<(), JsValue> {
 
     // Touch end - handle tap/double-tap or release drag
     let touchend_closure = Closure::<dyn FnMut(_)>::new(move |event: web_sys::TouchEvent| {
-        // Skip during intro
-        if is_intro_visible() {
-            return;
-        }
-
         event.prevent_default();
         event.stop_propagation();
 

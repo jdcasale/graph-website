@@ -463,6 +463,22 @@ impl Graph {
         }
     }
 
+    /// Calculate how many of the active tags this node matches
+    /// Returns (matches, total_active) for computing emphasis
+    pub fn tag_match_score(&self, node_id: &str, active_tags: &[(String, String)]) -> (usize, usize) {
+        if active_tags.is_empty() {
+            return (0, 0);
+        }
+        let node = match self.nodes.get(node_id) {
+            Some(n) => n,
+            None => return (0, active_tags.len()),
+        };
+        let matches = active_tags.iter()
+            .filter(|(k, v)| node.tags.iter().any(|(nk, nv)| nk == k && nv == v))
+            .count();
+        (matches, active_tags.len())
+    }
+
     /// Check if two nodes share any tags (same key AND value)
     pub fn nodes_share_tag(&self, node_a: &str, node_b: &str) -> Option<(String, String)> {
         let a = self.nodes.get(node_a)?;

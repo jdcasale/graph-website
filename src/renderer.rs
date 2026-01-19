@@ -116,6 +116,7 @@ impl Renderer {
         dark_mode: bool,
         active_tags: &[(String, String)],
         highlighted_tag_index: Option<usize>,
+        rail_selection: &Option<String>, // Selected destination in rail mode
     ) -> Result<(), JsValue> {
         // Update canvas size if window resized
         self.update_size()?;
@@ -264,6 +265,31 @@ impl Renderer {
                     }
                 }
             }
+
+            // Draw highlighted rail edge (selected destination)
+            if rail_mode {
+                if let (Some(from_id), Some(to_id)) = (current_node, rail_selection) {
+                    if let (Some(from), Some(to)) = (graph.get_node(from_id), graph.get_node(to_id)) {
+                        let from_screen = Vec2::new(from.position.x * zoom + offset_x, from.position.y * zoom + offset_y);
+                        let to_screen = Vec2::new(to.position.x * zoom + offset_x, to.position.y * zoom + offset_y);
+
+                        // Bright highlight color for selected edge
+                        let edge_color = if dark_mode {
+                            format!("rgba(255, 255, 255, {})", graph_opacity)
+                        } else {
+                            format!("rgba(0, 0, 0, {})", graph_opacity)
+                        };
+                        self.ctx.set_stroke_style_str(&edge_color);
+                        self.ctx.set_line_width(3.0 * zoom.max(1.0));
+                        self.ctx.set_line_dash(&js_sys::Array::new())?; // Solid line
+
+                        self.ctx.begin_path();
+                        self.ctx.move_to(from_screen.x, from_screen.y);
+                        self.ctx.line_to(to_screen.x, to_screen.y);
+                        self.ctx.stroke();
+                    }
+                }
+            }
         }
 
         // Draw only visible nodes
@@ -280,6 +306,21 @@ impl Renderer {
                 .as_ref()
                 .map(|id| id == &node.id)
                 .unwrap_or(false);
+
+            // Calculate tag match emphasis (visual centrality)
+            // Nodes matching more active tags get stronger emphasis
+            let tag_emphasis = if active_tags.is_empty() {
+                1.0 // No tags active, everything normal
+            } else {
+                let (matches, total) = graph.tag_match_score(&node.id, active_tags);
+                if matches == total {
+                    1.0 // Full match: full emphasis
+                } else if matches > 0 {
+                    0.5 + 0.5 * (matches as f64 / total as f64) // Partial: 0.5-1.0
+                } else {
+                    0.25 // No match: faded
+                }
+            };
 
             // In reading mode, only show the current node
             if reading_mode && !is_current {
@@ -300,6 +341,12 @@ impl Renderer {
 
             // Draw graph elements with opacity (skip if fully transparent)
             if graph_opacity > 0.01 {
+                // Check if this is the rail selection destination
+                let is_rail_destination = rail_mode && rail_selection
+                    .as_ref()
+                    .map(|id| id == &node.id)
+                    .unwrap_or(false);
+
                 // Draw highlight ring if this is the current/closest node
                 if is_current {
                     // Use different style for rail mode vs free mode, inverted for dark mode
@@ -324,6 +371,21 @@ impl Renderer {
                     self.ctx.stroke();
                 }
 
+                // Draw destination ring for rail selection (where Space will take you)
+                if is_rail_destination && !is_current {
+                    let dest_color = if dark_mode {
+                        format!("rgba(255, 255, 255, {})", graph_opacity * 0.8)
+                    } else {
+                        format!("rgba(0, 0, 0, {})", graph_opacity * 0.8)
+                    };
+                    self.ctx.set_stroke_style_str(&dest_color);
+                    self.ctx.set_line_width(2.0 * zoom);
+                    self.ctx.begin_path();
+                    self.ctx
+                        .arc(screen_pos.x, screen_pos.y, (HIGHLIGHT_RADIUS + 4.0) * zoom, 0.0, std::f64::consts::TAU)?;
+                    self.ctx.stroke();
+                }
+
                 // Determine node radius - larger for nodes with children
                 let has_children = graph.has_children(&node.id);
                 let radius = if has_children {
@@ -333,16 +395,18 @@ impl Renderer {
                 };
 
                 // Draw node circle with opacity (inverted for dark mode)
+                // Apply tag emphasis to fade non-matching nodes when tags are active
+                let node_opacity = graph_opacity * tag_emphasis;
                 let color = match &node.kind {
                     NodeKind::Collection => if dark_mode {
-                        format!("rgba(220, 220, 220, {})", graph_opacity)
+                        format!("rgba(220, 220, 220, {})", node_opacity)
                     } else {
-                        format!("rgba(51, 51, 51, {})", graph_opacity)
+                        format!("rgba(51, 51, 51, {})", node_opacity)
                     },
                     NodeKind::Post { .. } => if dark_mode {
-                        format!("rgba(180, 180, 180, {})", graph_opacity)
+                        format!("rgba(180, 180, 180, {})", node_opacity)
                     } else {
-                        format!("rgba(102, 102, 102, {})", graph_opacity)
+                        format!("rgba(102, 102, 102, {})", node_opacity)
                     },
                 };
 
@@ -380,7 +444,7 @@ impl Renderer {
             let tooltip_offset = self.calculate_tooltip_offset(graph, &node.id, visible_node_ids);
 
             // Update or create content element
-            self.update_content_element(node, screen_pos, is_current, reading_mode, graph_opacity, active_tags, tooltip_offset, highlighted_tag_index)?;
+            self.update_content_element(node, screen_pos, is_current, reading_mode, graph_opacity, active_tags, tooltip_offset, highlighted_tag_index, tag_emphasis)?;
         }
 
         // Hide content elements for non-visible nodes
@@ -602,6 +666,7 @@ impl Renderer {
         active_tags: &[(String, String)],
         tooltip_offset: Vec2, // Direction to offset tooltip (away from connected nodes)
         highlighted_tag_index: Option<usize>, // Currently highlighted tag (Tab cycling)
+        tag_emphasis: f64, // Visual emphasis based on tag match (1.0 = full, 0.25 = faded)
     ) -> Result<(), JsValue> {
         let el = if let Some(el) = self.content_elements.get(&node.id) {
             el.clone()
@@ -739,10 +804,12 @@ impl Renderer {
         style.set_property("transform-origin", transform_origin)?;
 
         // Apply opacity to non-current nodes during zoom transition
+        // Also apply tag emphasis to fade non-matching nodes
         if is_current {
             style.set_property("opacity", "1")?;
         } else {
-            style.set_property("opacity", &format!("{}", graph_opacity))?;
+            let content_opacity = graph_opacity * tag_emphasis;
+            style.set_property("opacity", &format!("{}", content_opacity))?;
         }
 
         Ok(())
