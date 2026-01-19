@@ -1,0 +1,144 @@
+# ═══════════════════════════════════════════════════════════════
+# COLLECTIONS - Container nodes (no article content)
+# ═══════════════════════════════════════════════════════════════
+
+[[collection]]
+id = "home"
+title = "Pensieve"
+summary = "Navigate with h/j/k/l or arrow keys.\nClick a node to jump to it.\nPress Enter to explore deeper.\nPress Escape to return.\nPress gg to come home."
+position = { x = 0.0, y = 0.0 }
+
+[[collection]]
+id = "projects"
+title = "Projects"
+summary = "Things I've built.\nEnter to explore."
+position = { x = 600.0, y = -200.0 }
+
+[[collection]]
+id = "writing"
+title = "Writing"
+summary = "Essays and notes.\nEnter to explore."
+position = { x = -500.0, y = 200.0 }
+
+[[collection]]
+id = "project-beta"
+title = "Project Beta"
+summary = "A CLI tool with sub-features.\nEnter to explore."
+parent = "projects"
+
+# ═══════════════════════════════════════════════════════════════
+# POSTS - Content nodes with markdown articles
+# ═══════════════════════════════════════════════════════════════
+
+[[post]]
+id = "about"
+title = "About"
+summary = "Who I am."
+position = { x = 400.0, y = 400.0 }
+content = "about.md"
+tags = [
+    { key = "author", value = "jdcasale" }
+]
+
+[[post]]
+id = "project-alpha"
+title = "Project Alpha"
+summary = "A cool thing I made.\nIt does interesting stuff."
+parent = "projects"
+content = "project-alpha.md"
+tags = [
+    { key = "author", value = "jdcasale" },
+    { key = "language", value = "rust" },
+    { key = "tech", value = "webgl" },
+    { key = "tech", value = "wasm" },
+    { key = "topic", value = "visualization" },
+    { key = "meta", value = "lessons-learned" }
+]
+
+[[post]]
+id = "project-gamma"
+title = "Project Gamma"
+summary = "Yet another thing.\nStill pretty neat."
+parent = "projects"
+content = "project-gamma.md"
+tags = [
+    { key = "author", value = "jdcasale" },
+    { key = "topic", value = "simplicity" }
+]
+
+[[post]]
+id = "beta-search"
+title = "Search"
+summary = "Full-text search feature."
+parent = "project-beta"
+content = "beta-search.md"
+tags = [
+    { key = "author", value = "jdcasale" },
+    { key = "tech", value = "indexing" },
+    { key = "topic", value = "knowledge-management" }
+]
+
+[[post]]
+id = "beta-graph"
+title = "Graph View"
+summary = "Visualize connections."
+parent = "project-beta"
+content = "beta-graph.md"
+tags = [
+    { key = "author", value = "jdcasale" },
+    { key = "tech", value = "visualization" },
+    { key = "topic", value = "visualization" },
+    { key = "topic", value = "knowledge-management" }
+]
+
+[[post]]
+id = "beta-export"
+title = "Export"
+summary = "Export to various formats."
+parent = "project-beta"
+content = "beta-export.md"
+tags = [
+    { key = "author", value = "jdcasale" },
+    { key = "tech", value = "markdown" },
+    { key = "topic", value = "simplicity" },
+    { key = "topic", value = "knowledge-management" }
+]
+
+[[post]]
+id = "essay-minimalism"
+title = "On Minimalism"
+summary = "Less is more, usually.\nSometimes less is just less."
+parent = "writing"
+content = "essay-minimalism.md"
+tags = [
+    { key = "author", value = "jdcasale" },
+    { key = "topic", value = "simplicity" },
+    { key = "topic", value = "philosophy" },
+    { key = "meta", value = "lessons-learned" }
+]
+
+[[post]]
+id = "essay-tools"
+title = "Tools for Thought"
+summary = "The tools we use shape how we think.\nChoose wisely."
+parent = "writing"
+content = "essay-tools.md"
+tags = [
+    { key = "author", value = "jdcasale" },
+    { key = "topic", value = "visualization" },
+    { key = "topic", value = "philosophy" },
+    { key = "topic", value = "knowledge-management" }
+]
+
+[[post]]
+id = "note-rust"
+title = "Notes on Rust"
+summary = "The borrow checker is your friend.\nEventually."
+parent = "writing"
+content = "note-rust.md"
+tags = [
+    { key = "author", value = "jdcasale" },
+    { key = "language", value = "rust" },
+    { key = "topic", value = "philosophy" },
+    { key = "meta", value = "lessons-learned" }
+]
