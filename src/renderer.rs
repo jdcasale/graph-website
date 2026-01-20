@@ -71,7 +71,7 @@ impl Renderer {
                 .dyn_into::<web_sys::HtmlElement>()?;
             el.set_id("rail-indicator");
             el.set_class_name("rail-indicator");
-            el.set_inner_html("RAIL MODE <span class=\"rail-hint\">b to exit</span>");
+            el.set_inner_html("RAIL <span class=\"rail-hint\">hjkl to exit</span>");
             document.body().ok_or("no body")?.append_child(&el)?;
             el
         };

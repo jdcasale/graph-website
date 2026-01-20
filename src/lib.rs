@@ -104,12 +104,8 @@ impl App {
                     self.camera.position = graph::Vec2::zero();
                     self.camera.velocity = graph::Vec2::zero();
                     self.camera.target = None;
-                    // Snap to first visible node in rail mode
-                    if self.rail_mode {
-                        self.snap_to_nearest_visible_node();
-                    } else {
-                        self.current_node = None;
-                    }
+                    // Snap to first visible node after depth transition
+                    self.snap_to_nearest_visible_node();
                 }
                 // Start fading in
                 self.transition_direction = 1;
@@ -145,33 +141,31 @@ impl App {
                 .collect()
         };
 
-        // Handle continuous node movement (Shift+hjkl in rail mode)
-        if self.rail_mode {
-            if let Some(dir) = self.input.move_node_dir {
-                if let Some(ref current_id) = self.current_node {
-                    let acceleration = 800.0; // Acceleration for node movement
-                    let accel_vec = match dir {
-                        'h' => graph::Vec2::new(-acceleration, 0.0),
-                        'l' => graph::Vec2::new(acceleration, 0.0),
-                        'k' => graph::Vec2::new(0.0, -acceleration),
-                        'j' => graph::Vec2::new(0.0, acceleration),
-                        _ => graph::Vec2::zero(),
-                    };
+        // Handle continuous node movement (Shift+hjkl when node selected)
+        if let Some(dir) = self.input.move_node_dir {
+            if let Some(ref current_id) = self.current_node {
+                let acceleration = 800.0; // Acceleration for node movement
+                let accel_vec = match dir {
+                    'h' => graph::Vec2::new(-acceleration, 0.0),
+                    'l' => graph::Vec2::new(acceleration, 0.0),
+                    'k' => graph::Vec2::new(0.0, -acceleration),
+                    'j' => graph::Vec2::new(0.0, acceleration),
+                    _ => graph::Vec2::zero(),
+                };
 
-                    if let Some(node) = self.graph.nodes.get_mut(current_id) {
-                        // Apply acceleration to node velocity
-                        node.velocity = node.velocity + accel_vec * dt;
+                if let Some(node) = self.graph.nodes.get_mut(current_id) {
+                    // Apply acceleration to node velocity
+                    node.velocity = node.velocity + accel_vec * dt;
 
-                        // Cap velocity
-                        let max_vel = 400.0;
-                        let speed = node.velocity.length();
-                        if speed > max_vel {
-                            node.velocity = node.velocity * (max_vel / speed);
-                        }
-
-                        // Camera follows the node
-                        self.camera.position = node.position;
+                    // Cap velocity
+                    let max_vel = 400.0;
+                    let speed = node.velocity.length();
+                    if speed > max_vel {
+                        node.velocity = node.velocity * (max_vel / speed);
                     }
+
+                    // Camera follows the node
+                    self.camera.position = node.position;
                 }
             }
         }
@@ -185,13 +179,15 @@ impl App {
         // Run physics simulation only on visible nodes
         layout::step(&mut self.graph, dt, &visible_node_ids);
 
-        // Determine which node to highlight (only from visible nodes)
+        // In free mode: auto-select closest node as camera pans
+        // In rail mode: keep current_node fixed
         let highlight_node = if self.rail_mode {
+            // Rail mode: keep current node, don't auto-select
             self.current_node.clone()
         } else {
-            // Find visible node closest to camera center (if within reasonable distance)
+            // Free mode: find closest visible node to camera center
             let mut closest: Option<(String, f64)> = None;
-            let center_threshold = 200.0; // Max distance from center to highlight
+            let center_threshold = 200.0;
 
             for id in &visible_node_ids {
                 if let Some(node) = self.graph.nodes.get(id) {
@@ -207,14 +203,20 @@ impl App {
                 }
             }
 
-            let closest_node = closest.map(|(id, _)| id);
-            // Update current_node so zoom works in free mode too
-            self.current_node = closest_node.clone();
-            closest_node
+            let new_node = closest.map(|(id, _)| id);
+
+            // Update current_node if selection changed
+            if new_node != self.current_node {
+                self.current_node = new_node.clone();
+                self.rail_selected_index = None;
+                self.highlighted_tag_index = None;
+            }
+
+            new_node
         };
 
         // Get rail selection for highlighting (computed inline to avoid double borrow)
-        let rail_selection = if self.rail_mode {
+        let rail_selection = if self.rail_mode && self.current_node.is_some() {
             self.rail_selected_index
                 .and_then(|idx| self.rail_edges.get(idx))
                 .map(|(id, _)| id.clone())
@@ -317,6 +319,70 @@ impl App {
                 .map(|n| n.id.clone())
                 .collect()
         }
+    }
+
+    /// Update the list of rail edges for the current node
+    fn update_rail_edges_internal(&mut self, visible_node_ids: &[String]) {
+        self.rail_edges.clear();
+        self.rail_selected_index = None;
+
+        let current_id = match &self.current_node {
+            Some(id) => id.clone(),
+            None => return,
+        };
+
+        let current_pos = match self.graph.nodes.get(&current_id) {
+            Some(node) => node.position,
+            None => return,
+        };
+
+        // Collect all connected nodes
+        let mut connected: Vec<String> = Vec::new();
+
+        // Direct connections
+        if let Some(node) = self.graph.nodes.get(&current_id) {
+            for conn in &node.connections {
+                if visible_node_ids.contains(conn) && !connected.contains(conn) {
+                    connected.push(conn.clone());
+                }
+            }
+        }
+
+        // Reverse connections (edges where current is the target)
+        for edge in &self.graph.edges {
+            if edge.to == current_id && visible_node_ids.contains(&edge.from) && !connected.contains(&edge.from) {
+                connected.push(edge.from.clone());
+            }
+            if edge.from == current_id && visible_node_ids.contains(&edge.to) && !connected.contains(&edge.to) {
+                connected.push(edge.to.clone());
+            }
+        }
+
+        // Tag-based connections
+        if let Some(current_node) = self.graph.nodes.get(&current_id) {
+            for tag in &current_node.tags {
+                if self.active_tags.contains(tag) {
+                    for node_id in self.graph.get_nodes_with_tag(&tag.0, &tag.1) {
+                        if node_id != current_id && visible_node_ids.contains(&node_id) && !connected.contains(&node_id) {
+                            connected.push(node_id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Calculate angles and sort
+        for conn_id in connected {
+            if let Some(conn_node) = self.graph.nodes.get(&conn_id) {
+                let dx = conn_node.position.x - current_pos.x;
+                let dy = conn_node.position.y - current_pos.y;
+                let angle = dy.atan2(dx);
+                self.rail_edges.push((conn_id, angle));
+            }
+        }
+
+        // Sort by angle (clockwise from east)
+        self.rail_edges.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
     }
 
     /// Snap camera and current_node to the nearest visible node
@@ -528,6 +594,7 @@ pub fn go_home() {
             app.camera.go_home();
         }
     });
+    update_rail_edges();
 }
 
 // Called from input module to handle node clicks (when not dragging a node)
@@ -552,11 +619,8 @@ pub fn handle_node_click(x: f64, y: f64) {
                     let dist = (dx * dx + dy * dy).sqrt();
 
                     if dist < 20.0 {
-                        // In rail mode: skate toward the clicked node
-                        // In free roam: just select it, no camera movement
-                        if app.rail_mode {
-                            app.camera.skate_toward(node.position);
-                        }
+                        // Skate toward and select the clicked node
+                        app.camera.skate_toward(node.position);
                         app.current_node = Some(node_id.clone());
                         // Reset highlighted tag since new node may have different tags
                         app.highlighted_tag_index = None;
@@ -566,6 +630,7 @@ pub fn handle_node_click(x: f64, y: f64) {
             }
         }
     });
+    update_rail_edges();
 }
 
 // Handle double-click on a node - drill into it or zoom to article
@@ -609,6 +674,7 @@ pub fn handle_node_double_click(x: f64, y: f64) {
             }
         }
     });
+    update_rail_edges();
 }
 
 // Try to start dragging a node at screen position (x, y)
@@ -671,39 +737,51 @@ pub fn end_node_drag(velocity_x: f64, velocity_y: f64) {
     });
 }
 
-// Toggle rail mode (b command)
-pub fn toggle_rail_mode() -> bool {
-    let entered_rail = APP.with(|cell| {
+// Check if rail mode is active (true when a node is selected)
+pub fn is_rail_mode() -> bool {
+    APP.with(|cell| {
+        if let Some(app) = cell.borrow().as_ref() {
+            app.rail_mode
+        } else {
+            false
+        }
+    })
+}
+
+// Toggle rail mode (b key) - locks onto current node for edge navigation
+pub fn toggle_rail_mode() {
+    let entered = APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
             app.rail_mode = !app.rail_mode;
-
             if app.rail_mode {
-                // Entering rail mode - snap to nearest VISIBLE node
-                let camera_pos = app.camera.position;
-                let visible_node_ids = app.get_visible_node_ids();
-                let mut nearest: Option<(String, f64)> = None;
-
-                for id in &visible_node_ids {
-                    if let Some(node) = app.graph.nodes.get(id) {
-                        let dx = node.position.x - camera_pos.x;
-                        let dy = node.position.y - camera_pos.y;
-                        let dist = (dx * dx + dy * dy).sqrt();
-
-                        if nearest.is_none() || dist < nearest.as_ref().unwrap().1 {
-                            nearest = Some((id.clone(), dist));
+                // Entering rail mode - ensure we have a node selected
+                if app.current_node.is_none() {
+                    // Find closest visible node
+                    let visible = app.get_visible_node_ids();
+                    let camera_pos = app.camera.position;
+                    let mut closest: Option<(String, f64)> = None;
+                    for id in &visible {
+                        if let Some(node) = app.graph.nodes.get(id) {
+                            let dist = ((node.position.x - camera_pos.x).powi(2)
+                                      + (node.position.y - camera_pos.y).powi(2)).sqrt();
+                            if closest.is_none() || dist < closest.as_ref().unwrap().1 {
+                                closest = Some((id.clone(), dist));
+                            }
                         }
                     }
-                }
-
-                if let Some((id, _)) = nearest {
-                    if let Some(node) = app.graph.nodes.get(&id) {
-                        app.camera.skate_toward(node.position);
+                    if let Some((id, _)) = closest {
                         app.current_node = Some(id);
+                    }
+                }
+                // Snap camera to current node
+                if let Some(ref id) = app.current_node {
+                    if let Some(node) = app.graph.nodes.get(id) {
+                        app.camera.skate_toward(node.position);
                     }
                 }
                 true
             } else {
-                // Exiting rail mode - clear selection
+                // Exiting rail mode
                 app.rail_edges.clear();
                 app.rail_selected_index = None;
                 false
@@ -713,25 +791,22 @@ pub fn toggle_rail_mode() -> bool {
         }
     });
 
-    // Update edges after releasing the borrow
-    if entered_rail {
+    if entered {
         update_rail_edges();
     }
-
-    APP.with(|cell| {
-        cell.borrow().as_ref().map(|app| app.rail_mode).unwrap_or(false)
-    })
 }
 
-// Check if rail mode is active
-pub fn is_rail_mode() -> bool {
+// Exit rail mode (called by hjkl to seamlessly transition to panning)
+pub fn exit_rail_mode() {
     APP.with(|cell| {
-        if let Some(app) = cell.borrow().as_ref() {
-            app.rail_mode
-        } else {
-            false
+        if let Some(app) = cell.borrow_mut().as_mut() {
+            if app.rail_mode {
+                app.rail_mode = false;
+                app.rail_edges.clear();
+                app.rail_selected_index = None;
+            }
         }
-    })
+    });
 }
 
 // Toggle dark mode
@@ -1025,14 +1100,10 @@ pub fn is_zoomed_in() -> bool {
     })
 }
 
-// Move current node in direction (Shift + hjkl in rail mode)
+// Move current node in direction (Shift + hjkl when node selected)
 pub fn move_current_node(direction: char) {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            if !app.rail_mode {
-                return;
-            }
-
             let current_id = match &app.current_node {
                 Some(id) => id.clone(),
                 None => return,
@@ -1145,11 +1216,11 @@ pub fn update_rail_edges() {
     });
 }
 
-/// Cycle through edges clockwise (n) or counter-clockwise (p)
+/// Cycle through edges clockwise (n) or counter-clockwise (m)
 pub fn cycle_rail_edge(clockwise: bool) {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            if !app.rail_mode || app.rail_edges.is_empty() {
+            if app.current_node.is_none() || app.rail_edges.is_empty() {
                 return;
             }
 
@@ -1174,7 +1245,7 @@ pub fn cycle_rail_edge(clockwise: bool) {
 pub fn aim_rail_edge(direction: char) {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            if !app.rail_mode || app.rail_edges.is_empty() {
+            if app.current_node.is_none() || app.rail_edges.is_empty() {
                 return;
             }
 
@@ -1225,7 +1296,7 @@ pub fn aim_rail_edge(direction: char) {
 pub fn drive_rail() {
     APP.with(|cell| {
         if let Some(app) = cell.borrow_mut().as_mut() {
-            if !app.rail_mode {
+            if app.current_node.is_none() {
                 return;
             }
 
@@ -1260,7 +1331,7 @@ pub fn drive_rail() {
 pub fn get_rail_selection() -> Option<String> {
     APP.with(|cell| {
         if let Some(app) = cell.borrow().as_ref() {
-            if !app.rail_mode {
+            if app.current_node.is_none() {
                 return None;
             }
             if let Some(idx) = app.rail_selected_index {
